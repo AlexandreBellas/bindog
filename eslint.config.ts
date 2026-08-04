@@ -1,7 +1,7 @@
 // For more info, see https://github.com/storybookjs/eslint-plugin-storybook#configuration-flat-config-format
 import { tanstackConfig } from '@tanstack/eslint-config'
+import customPlugin from 'code-conventions/eslint'
 import storybook from 'eslint-plugin-storybook'
-import customPlugin from './.eslint/rules/index.ts'
 
 export default [
   ...tanstackConfig,
@@ -21,6 +21,11 @@ export default [
   ...storybook.configs['flat/recommended'],
   // Custom plugin
   ...customPlugin.configs.recommended,
+  {
+    rules: {
+      "custom/require-storybook": "off"
+    }
+  },
   {
     ignores: [
       'src/**/*.test.tsx',
