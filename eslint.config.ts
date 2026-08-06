@@ -23,7 +23,17 @@ export default [
     ...customPlugin.configs.recommended,
     {
         rules: {
-            "custom/require-storybook": "off"
+            "custom/require-storybook": "off",
+            "@typescript-eslint/naming-convention": [
+                "warn",
+                {
+                    selector: "interface",
+                    format: ["PascalCase"],
+                    prefix: ["I"],
+                    filter: { regex: "^I|^(Window)$", match: false }
+                },
+                { selector: "typeAlias", format: ["PascalCase"], prefix: ["I"] }
+            ]
         }
     },
     {
@@ -33,7 +43,9 @@ export default [
             "src/**/*.spec.ts",
             "src/**/*.spec.tsx",
             "src/**/docs/**",
-            "src/lib/**"
+            "src/lib/**",
+            "src/tests/**",
+            "src/router.tsx"
         ]
     }
 ]

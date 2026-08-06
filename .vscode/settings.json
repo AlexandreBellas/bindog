@@ -27,5 +27,15 @@
     },
     "[jsonc]": {
         "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        "src/paraglide/**": true,
+        "project.inlang/**": true,
+        ".tanstack": true
     }
 }

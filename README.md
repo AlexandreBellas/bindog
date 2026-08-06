@@ -1,5 +1,10 @@
-# bindog
+# Bindog (WIP)
 Um bingo temático de doguinhos.
+
+To-do:
+
+- [x] Properly integrate PostHog
+- [] Use Cloudflare as TURN server
 
 # Getting Started
 
