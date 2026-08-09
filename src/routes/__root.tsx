@@ -1,6 +1,7 @@
 import Footer from "#/components/base/Footer"
 import Header from "#/components/base/Header"
 import StoreDevtools from "#/lib/demo-store-devtools"
+import { m } from "#/paraglide/messages"
 import { getLocale } from "#/paraglide/runtime"
 import appCss from "#/styles.css?url"
 import PostHogProvider from "#/utils/integrations/posthog/provider"
@@ -18,8 +19,6 @@ const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getIte
 
 export const Route = createRootRouteWithContext<IRouterContext>()({
     beforeLoad: async () => {
-        // Other redirect strategies are possible; see
-        // https://github.com/TanStack/router/tree/main/examples/react/i18n-paraglide#offline-redirect
         if (typeof document !== "undefined") {
             document.documentElement.setAttribute("lang", getLocale())
         }
@@ -35,13 +34,26 @@ export const Route = createRootRouteWithContext<IRouterContext>()({
                 content: "width=device-width, initial-scale=1"
             },
             {
-                title: "TanStack Start Starter"
+                title: m.app_name()
+            },
+            {
+                name: "description",
+                content: m.app_description()
             }
         ],
         links: [
             {
                 rel: "stylesheet",
                 href: appCss
+            },
+            {
+                rel: "icon",
+                href: "/favicon.svg",
+                type: "image/svg+xml"
+            },
+            {
+                rel: "apple-touch-icon",
+                href: "/favicon.svg"
             }
         ]
     }),
@@ -57,10 +69,10 @@ function RootDocument({ children }: Readonly<IRootDocumentProps>) {
                 <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
                 <HeadContent />
             </head>
-            <body className="font-sans antialiased wrap-anywhere selection:bg-[rgba(79,184,178,0.24)]">
+            <body className="flex h-dvh max-h-dvh flex-col overflow-hidden font-sans antialiased wrap-anywhere selection:bg-(--selection)">
                 <PostHogProvider>
                     <Header />
-                    {children}
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
                     <Footer />
                     <TanStackDevtools
                         config={{ position: "bottom-right" }}

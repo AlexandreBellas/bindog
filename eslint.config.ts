@@ -45,7 +45,9 @@ export default [
             "src/**/docs/**",
             "src/lib/**",
             "src/tests/**",
-            "src/router.tsx"
+            "src/router.tsx",
+            "src/components/ui/**",
+            "src/paraglide/**"
         ]
     }
 ]
