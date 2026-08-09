@@ -39,6 +39,7 @@ export default function HeroActions({ onOpenModal }: Readonly<IHeroActionsProps>
                     size="lg"
                     variant="outline"
                     onClick={() => onOpenModal("settings")}
+                    disabled
                     className="h-11 rounded-2xl border-(--chip-line) bg-transparent text-sm font-bold text-(--bark) hover:bg-(--biscuit)/70 sm:h-12 sm:text-base"
                 >
                     <Settings2 className="size-4" aria-hidden="true" />
