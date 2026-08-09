@@ -6,6 +6,7 @@ import { getLocale } from "#/paraglide/runtime"
 import appCss from "#/styles.css?url"
 import PostHogProvider from "#/utils/integrations/posthog/provider"
 import TanStackQueryDevtools from "#/utils/integrations/tanstack-query/devtools"
+import { seo } from "#/utils/seo"
 import { TanStackDevtools } from "@tanstack/react-devtools"
 import type { QueryClient } from "@tanstack/react-query"
 import { HeadContent, Scripts, createRootRouteWithContext } from "@tanstack/react-router"
@@ -24,39 +25,39 @@ export const Route = createRootRouteWithContext<IRouterContext>()({
         }
     },
 
-    head: () => ({
-        meta: [
-            {
-                charSet: "utf-8"
-            },
-            {
-                name: "viewport",
-                content: "width=device-width, initial-scale=1"
-            },
-            {
-                title: m.app_name()
-            },
-            {
-                name: "description",
-                content: m.app_description()
-            }
-        ],
-        links: [
-            {
-                rel: "stylesheet",
-                href: appCss
-            },
-            {
-                rel: "icon",
-                href: "/favicon.svg",
-                type: "image/svg+xml"
-            },
-            {
-                rel: "apple-touch-icon",
-                href: "/favicon.svg"
-            }
-        ]
-    }),
+    head: () => {
+        const social = seo({
+            title: m.app_name(),
+            description: m.app_description()
+        })
+
+        return {
+            meta: [
+                { charSet: "utf-8" },
+                {
+                    name: "viewport",
+                    content: "width=device-width, initial-scale=1"
+                },
+                ...social.meta
+            ],
+            links: [
+                {
+                    rel: "stylesheet",
+                    href: appCss
+                },
+                {
+                    rel: "icon",
+                    href: "/favicon.svg",
+                    type: "image/svg+xml"
+                },
+                {
+                    rel: "apple-touch-icon",
+                    href: "/favicon.svg"
+                },
+                ...social.links
+            ]
+        }
+    },
     shellComponent: RootDocument
 })
 
