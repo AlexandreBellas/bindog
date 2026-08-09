@@ -1,13 +1,6 @@
 {
-    "include": [
-        "**/*.ts",
-        "**/*.tsx",
-        ".storybook/**/*.ts",
-        ".storybook/**/*.tsx",
-        "prettier.config.js",
-        "vite.config.js"
-    ],
-    "exclude": ["workers/**", "node_modules/**", "dist/**", ".output/**"],
+    "include": ["**/*.ts", "**/*.tsx", ".storybook/**/*.ts", ".storybook/**/*.tsx", "vite.config.js"],
+    "exclude": ["workers/**", "node_modules/**", "dist/**", ".output/**", "eslint.config.ts"],
 
     "compilerOptions": {
         "target": "ES2022",

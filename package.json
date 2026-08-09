@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "vite dev --port 3000",
     "generate-routes": "tsr generate",
+    "paraglide:compile": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide --strategy localStorage baseLocale",
+    "typecheck": "npm run paraglide:compile && tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
