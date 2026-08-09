@@ -13,8 +13,8 @@ export default function Landing() {
     // #endregion
 
     return (
-        <main className="page-wrap flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-6 pt-6 sm:pt-10">
-            <section className="relative flex flex-1 flex-col items-center justify-center text-center">
+        <main className="page-wrap flex flex-col px-4 pb-8 pt-6 md:min-h-0 md:flex-1 md:overflow-hidden md:pb-6 md:pt-10">
+            <section className="relative flex flex-col items-center text-center md:min-h-0 md:flex-1 md:justify-center">
                 <div className="rise-in float-soft w-full" style={{ animationDelay: "40ms" }}>
                     <DogIllustration />
                 </div>

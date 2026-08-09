@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react"
 
 export default function Game() {
     return (
-        <main className="page-wrap flex flex-1 flex-col px-4 pb-12 pt-10 sm:pt-14">
+        <main className="page-wrap flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-8 pt-10 sm:pt-14">
             <div className="rise-in mx-auto flex w-full max-w-lg flex-col items-center gap-6 text-center">
                 <p className="island-kicker m-0">{m.coming_soon()}</p>
                 <h1 className="display-title m-0 text-4xl font-extrabold text-(--bark) sm:text-5xl">

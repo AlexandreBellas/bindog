@@ -3,7 +3,7 @@ import { ChevronUp, Github, Linkedin } from "lucide-react"
 
 export default function Footer() {
     return (
-        <footer className="mt-auto border-t border-(--line) bg-(--header-bg)/80 px-4 py-5 text-(--bark-soft) backdrop-blur-sm md:sticky md:bottom-0 md:z-40">
+        <footer className="shrink-0 border-t border-(--line) bg-(--header-bg)/80 px-4 py-5 text-(--bark-soft) backdrop-blur-sm">
             <div className="page-wrap flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col items-center gap-2 sm:items-start">
                     <p className="m-0 text-sm font-medium text-(--bark)">{m.footer_made_by()}</p>
