@@ -16,18 +16,18 @@ import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 import type { FormEvent } from "react"
 
-interface IJoinGameModalProps {
+interface IStartGameModalProps {
     open: boolean
     onOpenChange: (open: boolean) => void
 }
 
-export default function JoinGameModal({ open, onOpenChange }: Readonly<IJoinGameModalProps>) {
+export default function StartGameModal({ open, onOpenChange }: Readonly<IStartGameModalProps>) {
     // #region Params
     const navigate = useNavigate()
     // #endregion
 
     // #region States
-    const [roomCode, setRoomCode] = useState("")
+    const [roomName, setRoomName] = useState("")
     const [nickname, setNickname] = useState("")
     const [error, setError] = useState<string | null>(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -41,25 +41,18 @@ export default function JoinGameModal({ open, onOpenChange }: Readonly<IJoinGame
     const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         setError(null)
-
-        if (!gameEngine.isValidRoomCode(roomCode)) {
-            setError(m.error_invalid_code())
-            return
-        }
-
         setIsSubmitting(true)
 
         try {
             await gameEngine.connect({
-                role: ConnectRole.Joiner,
-                roomCode,
+                role: ConnectRole.Leader,
+                roomName,
                 nickname
             })
             onOpenChange(false)
             await navigate({ to: "/matchmaking" })
-        } catch (caught) {
-            const message = caught instanceof Error ? caught.message : ""
-            setError(message.toLowerCase().includes("invalid") ? m.error_invalid_code() : m.error_connection_failed())
+        } catch {
+            setError(m.error_connection_failed())
             setIsSubmitting(false)
         }
     }
@@ -69,35 +62,34 @@ export default function JoinGameModal({ open, onOpenChange }: Readonly<IJoinGame
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent className="border-(--line) bg-(--foam) sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle className="display-title text-2xl text-(--bark)">{m.join_game_title()}</DialogTitle>
+                    <DialogTitle className="display-title text-2xl text-(--bark)">{m.start_game_title()}</DialogTitle>
                     <DialogDescription className="text-base text-(--bark-soft)">
-                        {m.join_game_description()}
+                        {m.start_game_description()}
                     </DialogDescription>
                 </DialogHeader>
 
                 <form className="space-y-4" onSubmit={handleSubmit}>
                     <div className="space-y-2">
-                        <Label htmlFor="join-room-code" className="text-(--bark)">
-                            {m.room_code_label()}
+                        <Label htmlFor="start-room-name" className="text-(--bark)">
+                            {m.room_name_label()}
                         </Label>
                         <Input
-                            id="join-room-code"
-                            value={roomCode}
-                            onChange={event => setRoomCode(event.target.value.toUpperCase())}
-                            maxLength={8}
+                            id="start-room-name"
+                            value={roomName}
+                            onChange={event => setRoomName(event.target.value)}
+                            maxLength={48}
                             required
                             autoComplete="off"
-                            spellCheck={false}
-                            className="rounded-xl border-(--chip-line) bg-(--cream) font-mono tracking-[0.2em] text-(--bark)"
+                            className="rounded-xl border-(--chip-line) bg-(--cream) text-(--bark)"
                         />
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="join-nickname" className="text-(--bark)">
+                        <Label htmlFor="start-nickname" className="text-(--bark)">
                             {m.nickname_label()}
                         </Label>
                         <Input
-                            id="join-nickname"
+                            id="start-nickname"
                             value={nickname}
                             onChange={event => setNickname(event.target.value)}
                             maxLength={24}
@@ -115,7 +107,7 @@ export default function JoinGameModal({ open, onOpenChange }: Readonly<IJoinGame
                             disabled={isSubmitting}
                             className="w-full rounded-2xl bg-(--cta) font-bold text-(--cta-foreground)! hover:bg-(--cta-hover)"
                         >
-                            {isSubmitting ? m.connecting() : m.join_room_submit()}
+                            {isSubmitting ? m.connecting() : m.create_room_submit()}
                         </Button>
                     </DialogFooter>
                 </form>

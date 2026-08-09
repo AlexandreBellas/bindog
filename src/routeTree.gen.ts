@@ -9,10 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as MatchmakingRouteImport } from './routes/matchmaking'
 import { Route as GameRouteImport } from './routes/game'
 import { Route as MarketingRouteImport } from './routes/_marketing'
 import { Route as MarketingIndexRouteImport } from './routes/_marketing/index'
 
+const MatchmakingRoute = MatchmakingRouteImport.update({
+  id: '/matchmaking',
+  path: '/matchmaking',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GameRoute = GameRouteImport.update({
   id: '/game',
   path: '/game',
@@ -31,32 +37,43 @@ const MarketingIndexRoute = MarketingIndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof MarketingIndexRoute
   '/game': typeof GameRoute
+  '/matchmaking': typeof MatchmakingRoute
 }
 export interface FileRoutesByTo {
   '/game': typeof GameRoute
+  '/matchmaking': typeof MatchmakingRoute
   '/': typeof MarketingIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_marketing': typeof MarketingRouteWithChildren
   '/game': typeof GameRoute
+  '/matchmaking': typeof MatchmakingRoute
   '/_marketing/': typeof MarketingIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/game'
+  fullPaths: '/' | '/game' | '/matchmaking'
   fileRoutesByTo: FileRoutesByTo
-  to: '/game' | '/'
-  id: '__root__' | '/_marketing' | '/game' | '/_marketing/'
+  to: '/game' | '/matchmaking' | '/'
+  id: '__root__' | '/_marketing' | '/game' | '/matchmaking' | '/_marketing/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   MarketingRoute: typeof MarketingRouteWithChildren
   GameRoute: typeof GameRoute
+  MatchmakingRoute: typeof MatchmakingRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/matchmaking': {
+      id: '/matchmaking'
+      path: '/matchmaking'
+      fullPath: '/matchmaking'
+      preLoaderRoute: typeof MatchmakingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/game': {
       id: '/game'
       path: '/game'
@@ -96,6 +113,7 @@ const MarketingRouteWithChildren = MarketingRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   MarketingRoute: MarketingRouteWithChildren,
   GameRoute: GameRoute,
+  MatchmakingRoute: MatchmakingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

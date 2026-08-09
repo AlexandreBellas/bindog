@@ -89,6 +89,14 @@ pnpm dlx shadcn@latest add button
 
 - `VITE_POSTHOG_HOST` - Set this if you're using PostHog Cloud EU (`https://eu.i.posthog.com`) or self-hosting
 
+## Matchmaking signaling
+
+Invite rooms use a Cloudflare Worker for TURN credential minting and WebRTC signaling.
+
+1. Copy `.env.example` to `.env.local` and set `VITE_SIGNALING_URL`
+2. See [`workers/bindog-signaling/README.md`](workers/bindog-signaling/README.md) to run or deploy the Worker
+3. CI injects `VITE_SIGNALING_URL` from GitHub secrets on release deploy
+
 
 # Paraglide i18n
 

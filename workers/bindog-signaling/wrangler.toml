@@ -1,0 +1,7 @@
+name = "bindog-signaling"
+main = "src/index.ts"
+compatibility_date = "2025-08-01"
+
+# Set with:
+#   npx wrangler secret put TURN_KEY_ID
+#   npx wrangler secret put TURN_API_TOKEN

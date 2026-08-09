@@ -2,8 +2,30 @@
 import { tanstackConfig } from "@tanstack/eslint-config"
 import customPlugin from "code-conventions/eslint"
 import storybook from "eslint-plugin-storybook"
+import tseslint from "typescript-eslint"
 
 export default [
+    {
+        ignores: [
+            "eslint.config.ts",
+            "prettier.config.js",
+            "workers/**",
+            "dist/**",
+            ".output/**",
+            ".vinxi/**",
+            ".nitro/**",
+            "src/paraglide/**",
+            "src/**/*.test.tsx",
+            "src/**/*.test.ts",
+            "src/**/*.spec.ts",
+            "src/**/*.spec.tsx",
+            "src/**/docs/**",
+            "src/lib/**",
+            "src/tests/**",
+            "src/router.tsx",
+            "src/components/ui/**"
+        ]
+    },
     ...tanstackConfig,
     {
         rules: {
@@ -15,13 +37,14 @@ export default [
             "pnpm/json-enforce-catalog": "off"
         }
     },
-    {
-        ignores: ["eslint.config.ts", "prettier.config.js"]
-    },
     ...storybook.configs["flat/recommended"],
     // Custom plugin
     ...customPlugin.configs.recommended,
     {
+        files: ["src/**/*.{ts,tsx}"],
+        plugins: {
+            "@typescript-eslint": tseslint.plugin
+        },
         rules: {
             "custom/require-storybook": "off",
             "@typescript-eslint/naming-convention": [
@@ -35,19 +58,5 @@ export default [
                 { selector: "typeAlias", format: ["PascalCase"], prefix: ["I"] }
             ]
         }
-    },
-    {
-        ignores: [
-            "src/**/*.test.tsx",
-            "src/**/*.test.ts",
-            "src/**/*.spec.ts",
-            "src/**/*.spec.tsx",
-            "src/**/docs/**",
-            "src/lib/**",
-            "src/tests/**",
-            "src/router.tsx",
-            "src/components/ui/**",
-            "src/paraglide/**"
-        ]
     }
 ]

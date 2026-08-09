@@ -1,6 +1,5 @@
 import { Button } from "#/components/ui/button"
 import { m } from "#/paraglide/messages"
-import { Link } from "@tanstack/react-router"
 import { BookOpen, Gamepad2, Settings2, Users } from "lucide-react"
 import type { ILandingModalKind } from "../../@types/modal"
 
@@ -12,14 +11,13 @@ export default function HeroActions({ onOpenModal }: Readonly<IHeroActionsProps>
     return (
         <div className="mx-auto mt-8 flex w-full max-w-md flex-col gap-3 sm:mt-10">
             <Button
-                asChild
+                type="button"
                 size="lg"
+                onClick={() => onOpenModal("start")}
                 className="h-12 rounded-2xl bg-(--cta) text-base font-bold text-(--cta-foreground)! hover:bg-(--cta-hover) sm:h-14 sm:text-lg"
             >
-                <Link to="/game">
-                    <Gamepad2 className="size-5" aria-hidden="true" />
-                    {m.start_game()}
-                </Link>
+                <Gamepad2 className="size-5" aria-hidden="true" />
+                {m.start_game()}
             </Button>
 
             <Button

@@ -5,6 +5,7 @@ import type { ILandingModal } from "./@types/modal"
 import HeroActions from "./components/HeroActions"
 import JoinGameModal from "./components/JoinGameModal"
 import SettingsModal from "./components/SettingsModal"
+import StartGameModal from "./components/StartGameModal"
 import TutorialModal from "./components/TutorialModal"
 
 export default function Landing() {
@@ -33,6 +34,10 @@ export default function Landing() {
                 </div>
             </section>
 
+            <StartGameModal
+                open={activeModal === "start"}
+                onOpenChange={open => setActiveModal(open ? "start" : null)}
+            />
             <JoinGameModal open={activeModal === "join"} onOpenChange={open => setActiveModal(open ? "join" : null)} />
             <SettingsModal
                 open={activeModal === "settings"}
