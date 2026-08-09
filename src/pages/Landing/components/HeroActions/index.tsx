@@ -14,7 +14,7 @@ export default function HeroActions({ onOpenModal }: Readonly<IHeroActionsProps>
             <Button
                 asChild
                 size="lg"
-                className="h-12 rounded-2xl bg-(--cta) text-base font-bold !text-(--cta-foreground) hover:bg-(--cta-hover) sm:h-14 sm:text-lg"
+                className="h-12 rounded-2xl bg-(--cta) text-base font-bold text-(--cta-foreground)! hover:bg-(--cta-hover) sm:h-14 sm:text-lg"
             >
                 <Link to="/game">
                     <Gamepad2 className="size-5" aria-hidden="true" />
