@@ -54,6 +54,8 @@
     "leave_confirm_action": "Leave",
     "cancel": "Cancel",
     "back_home": "Back to home",
+    "not_found_title": "This trail went cold",
+    "not_found_description": "That page scampered off to chase squirrels. Let's get you back to the park.",
     "error_invalid_code": "That room code is not valid.",
     "error_connection_failed": "Could not connect. Check your connection and try again.",
     "error_need_two_players": "Need at least two players to start.",

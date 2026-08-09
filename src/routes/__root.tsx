@@ -1,6 +1,7 @@
 import Footer from "#/components/base/Footer"
 import Header from "#/components/base/Header"
 import StoreDevtools from "#/lib/demo-store-devtools"
+import NotFound from "#/pages/NotFound"
 import { m } from "#/paraglide/messages"
 import { getLocale } from "#/paraglide/runtime"
 import appCss from "#/styles.css?url"
@@ -58,6 +59,7 @@ export const Route = createRootRouteWithContext<IRouterContext>()({
             ]
         }
     },
+    notFoundComponent: NotFound,
     shellComponent: RootDocument
 })
 

@@ -54,6 +54,8 @@
     "leave_confirm_action": "Quitter",
     "cancel": "Annuler",
     "back_home": "Retour à l'accueil",
+    "not_found_title": "Cette piste a refroidi",
+    "not_found_description": "Cette page est partie courir après des écureuils. Retournons au parc.",
     "error_invalid_code": "Ce code de salle n'est pas valide.",
     "error_connection_failed": "Connexion impossible. Vérifiez votre connexion et réessayez.",
     "error_need_two_players": "Il faut au moins deux joueurs pour commencer.",

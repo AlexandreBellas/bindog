@@ -54,6 +54,8 @@
     "leave_confirm_action": "Sair",
     "cancel": "Cancelar",
     "back_home": "Voltar ao início",
+    "not_found_title": "Esse rastro esfriou",
+    "not_found_description": "Essa página saiu correndo atrás de esquilos. Vamos te levar de volta ao parque.",
     "error_invalid_code": "Esse código de sala não é válido.",
     "error_connection_failed": "Não foi possível conectar. Verifique a conexão e tente de novo.",
     "error_need_two_players": "É preciso pelo menos dois jogadores para começar.",

@@ -54,6 +54,8 @@
     "leave_confirm_action": "Esci",
     "cancel": "Annulla",
     "back_home": "Torna alla home",
+    "not_found_title": "Questa traccia si è raffreddata",
+    "not_found_description": "Quella pagina è scappata a rincorrere scoiattoli. Torniamo al parco.",
     "error_invalid_code": "Questo codice stanza non è valido.",
     "error_connection_failed": "Connessione non riuscita. Controlla la connessione e riprova.",
     "error_need_two_players": "Servono almeno due giocatori per iniziare.",

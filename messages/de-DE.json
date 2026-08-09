@@ -54,6 +54,8 @@
     "leave_confirm_action": "Verlassen",
     "cancel": "Abbrechen",
     "back_home": "Zurück zur Startseite",
+    "not_found_title": "Diese Spur ist kalt",
+    "not_found_description": "Diese Seite ist Eichhörnchen hinterhergelaufen. Zurück in den Park!",
     "error_invalid_code": "Dieser Raumcode ist ungültig.",
     "error_connection_failed": "Verbindung fehlgeschlagen. Prüfe deine Verbindung und versuche es erneut.",
     "error_need_two_players": "Mindestens zwei Spieler werden zum Starten benötigt.",
