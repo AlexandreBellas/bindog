@@ -12,7 +12,7 @@ class_name = "RoomDurableObject"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["RoomDurableObject"]
+new_sqlite_classes = ["RoomDurableObject"]
 
 # Per-IP (per Cloudflare colo) limits. Period must be 10 or 60 seconds.
 [[ratelimits]]
