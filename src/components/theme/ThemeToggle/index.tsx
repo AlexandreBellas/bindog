@@ -48,10 +48,11 @@ export default function ThemeToggle() {
     return (
         <Button
             type="button"
+            size="default"
             onClick={toggleMode}
             aria-label={m.theme_toggle_aria({ mode: modeLabel })}
             title={m.theme_toggle_aria({ mode: modeLabel })}
-            className="rounded-full border border-(--chip-line) bg-(--chip-bg) px-3 py-1.5 text-sm font-semibold text-(--bark) shadow-[0_8px_22px_rgba(90,55,25,0.08)] transition hover:-translate-y-0.5"
+            className="h-9 rounded-full border border-(--chip-line) bg-(--chip-bg) px-3 text-xs font-semibold text-(--bark) shadow-[0_8px_22px_rgba(90,55,25,0.08)] transition hover:-translate-y-0.5 sm:text-sm"
         >
             {modeLabel}
         </Button>
