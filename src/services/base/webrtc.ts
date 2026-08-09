@@ -1,8 +1,13 @@
-import { ROOM_CODE_PATTERN } from "#/constants/room-code"
-import { RoomPhase, roomPhases } from "#/@types/room"
 import type { IRoomPhase, IRoomPlayer, IRoomState } from "#/@types/room"
+import { RoomPhase, roomPhases } from "#/@types/room"
+import type {
+    IDataChannelMessage,
+    IIceTransportPath,
+    ISignalingServerMessage,
+    IWebRtcSignalPayload
+} from "#/@types/signaling"
 import { DataChannelMessageType, SignalingServerMessageType, WebRtcSignalKind } from "#/@types/signaling"
-import type { IDataChannelMessage, ISignalingServerMessage, IWebRtcSignalPayload } from "#/@types/signaling"
+import { ROOM_CODE_PATTERN } from "#/constants/room-code"
 
 /**
  * Shared WebRTC / signaling helpers for concrete game-engine providers.
@@ -253,6 +258,67 @@ export default abstract class BaseWebRtcService {
         }
 
         return null
+    }
+
+    /**
+     * Resolves whether the peer connection's selected ICE path uses TURN relay
+     * or a direct / STUN-discovered path.
+     */
+    protected async resolveIceTransportPath(connection: RTCPeerConnection): Promise<IIceTransportPath> {
+        const stats = await connection.getStats()
+
+        let selectedPair: RTCIceCandidatePairStats | undefined
+
+        for (const report of stats.values()) {
+            if (report.type === "candidate-pair" && "selected" in report && report.selected) {
+                selectedPair = report as RTCIceCandidatePairStats
+                break
+            }
+        }
+
+        if (!selectedPair) {
+            for (const report of stats.values()) {
+                if (report.type !== "transport") continue
+                const transport = report as RTCTransportStats
+                if (!transport.selectedCandidatePairId) continue
+                selectedPair = stats.get(transport.selectedCandidatePairId) as RTCIceCandidatePairStats | undefined
+                break
+            }
+        }
+
+        if (!selectedPair?.localCandidateId || !selectedPair.remoteCandidateId) return "unknown"
+
+        const local = stats.get(selectedPair.localCandidateId) as { candidateType?: string } | undefined
+        const remote = stats.get(selectedPair.remoteCandidateId) as { candidateType?: string } | undefined
+
+        if (local?.candidateType === "relay" || remote?.candidateType === "relay") {
+            return "turn"
+        }
+
+        if (local?.candidateType || remote?.candidateType) {
+            return "stun-or-direct"
+        }
+
+        return "unknown"
+    }
+
+    /**
+     * Logs the ICE transport path for a peer in development builds only.
+     */
+    protected logIceTransportPathIfDev(connection: RTCPeerConnection, peerId: string): void {
+        if (!import.meta.env.DEV) return
+
+        void this.resolveIceTransportPath(connection).then(async path => {
+            let resolved = path
+
+            // Selected pair stats can lag a moment after `connected`.
+            if (resolved === "unknown") {
+                await new Promise(resolve => setTimeout(resolve, 250))
+                resolved = await this.resolveIceTransportPath(connection)
+            }
+
+            console.info(`[webrtc] peer ${peerId} ice path: ${resolved}`)
+        })
     }
 
     /**

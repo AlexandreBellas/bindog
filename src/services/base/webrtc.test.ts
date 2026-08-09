@@ -54,6 +54,10 @@ class TestableWebRtcService extends BaseWebRtcService {
     public parseWebRtcSignalPayload(...args: Parameters<BaseWebRtcService["parseWebRtcSignalPayload"]>) {
         return super.parseWebRtcSignalPayload(...args)
     }
+
+    public resolveIceTransportPath(...args: Parameters<BaseWebRtcService["resolveIceTransportPath"]>) {
+        return super.resolveIceTransportPath(...args)
+    }
 }
 
 function makeState(overrides: Partial<IRoomState> = {}): IRoomState {
@@ -255,5 +259,71 @@ describe("parseWebRtcSignalPayload", () => {
 
     it("returns null for unknown kinds", () => {
         expect(service.parseWebRtcSignalPayload({ kind: "nope" })).toBeNull()
+    })
+})
+
+describe("resolveIceTransportPath", () => {
+    function mockConnection(reports: Map<string, object>): RTCPeerConnection {
+        return {
+            getStats: async () => reports
+        } as unknown as RTCPeerConnection
+    }
+
+    it("detects a TURN relay path from the selected candidate pair", async () => {
+        const reports = new Map<string, object>([
+            [
+                "pair-1",
+                {
+                    type: "candidate-pair",
+                    selected: true,
+                    localCandidateId: "local-1",
+                    remoteCandidateId: "remote-1"
+                }
+            ],
+            ["local-1", { type: "local-candidate", candidateType: "relay" }],
+            ["remote-1", { type: "remote-candidate", candidateType: "srflx" }]
+        ])
+
+        await expect(service.resolveIceTransportPath(mockConnection(reports))).resolves.toBe("turn")
+    })
+
+    it("detects a STUN or direct path when neither candidate is relay", async () => {
+        const reports = new Map<string, object>([
+            [
+                "pair-1",
+                {
+                    type: "candidate-pair",
+                    selected: true,
+                    localCandidateId: "local-1",
+                    remoteCandidateId: "remote-1"
+                }
+            ],
+            ["local-1", { type: "local-candidate", candidateType: "host" }],
+            ["remote-1", { type: "remote-candidate", candidateType: "srflx" }]
+        ])
+
+        await expect(service.resolveIceTransportPath(mockConnection(reports))).resolves.toBe("stun-or-direct")
+    })
+
+    it("falls back to the transport selectedCandidatePairId", async () => {
+        const reports = new Map<string, object>([
+            ["transport-1", { type: "transport", selectedCandidatePairId: "pair-1" }],
+            [
+                "pair-1",
+                {
+                    type: "candidate-pair",
+                    localCandidateId: "local-1",
+                    remoteCandidateId: "remote-1"
+                }
+            ],
+            ["local-1", { type: "local-candidate", candidateType: "host" }],
+            ["remote-1", { type: "remote-candidate", candidateType: "host" }]
+        ])
+
+        await expect(service.resolveIceTransportPath(mockConnection(reports))).resolves.toBe("stun-or-direct")
+    })
+
+    it("returns unknown when no selected pair is present", async () => {
+        await expect(service.resolveIceTransportPath(mockConnection(new Map()))).resolves.toBe("unknown")
     })
 })

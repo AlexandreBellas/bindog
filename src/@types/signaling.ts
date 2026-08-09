@@ -146,3 +146,12 @@ export type ISignalingServerMessage =
 export interface IIceServersResponse {
     iceServers: RTCIceServer[]
 }
+
+/** How the selected ICE candidate pair reaches the remote peer. */
+export const iceTransportPaths = ["turn", "stun-or-direct", "unknown"] as const
+export type IIceTransportPath = (typeof iceTransportPaths)[number]
+export const IceTransportPath = {
+    Turn: "turn",
+    StunOrDirect: "stun-or-direct",
+    Unknown: "unknown"
+} as const satisfies Record<IKeyable<IIceTransportPath>, IIceTransportPath>

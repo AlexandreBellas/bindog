@@ -457,6 +457,10 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         })
 
         connection.addEventListener("connectionstatechange", () => {
+            if (connection.connectionState === "connected") {
+                this.logIceTransportPathIfDev(connection, peerId)
+            }
+
             if (connection.connectionState === "failed" || connection.connectionState === "closed") {
                 this.teardownPeer(peerId)
             }
