@@ -7,10 +7,10 @@ import { Locale } from "#/utils/types/locale"
  */
 export function getLocaleDisplayName(locale: ILocale): string {
     switch (locale) {
-        case Locale.EnUS:
-            return m.locale_en_US()
         case Locale.PtBR:
             return m.locale_pt_BR()
+        case Locale.EnUS:
+            return m.locale_en_US()
         case Locale.FrFR:
             return m.locale_fr_FR()
         case Locale.ItIT:

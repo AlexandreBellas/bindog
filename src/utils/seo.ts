@@ -60,7 +60,7 @@ export function seo({
             { property: "og:image:width", content: String(OG_IMAGE_WIDTH) },
             { property: "og:image:height", content: String(OG_IMAGE_HEIGHT) },
             { property: "og:image:alt", content: title },
-            { property: "og:locale", content: "en_US" },
+            { property: "og:locale", content: "pt_BR" },
 
             // Twitter / X
             { name: "twitter:card", content: "summary_large_image" },

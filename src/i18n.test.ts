@@ -7,27 +7,27 @@ import { describe, expect, it } from "vitest"
 const MESSAGES_DIR = path.resolve(process.cwd(), "messages")
 
 const expectTranslationsRecursively = (props: {
-    englishLocale: INestedRecord<string>
+    baseLocale: INestedRecord<string>
     currLocale: INestedRecord<string>
     language: string
     path?: string
 }) => {
-    const { englishLocale, currLocale, language, path: keyPath } = props
+    const { baseLocale, currLocale, language, path: keyPath } = props
 
-    for (const key of Object.keys(englishLocale)) {
-        const englishLocaleEntry = englishLocale[key]
+    for (const key of Object.keys(baseLocale)) {
+        const baseLocaleEntry = baseLocale[key]
         const currLocaleEntry = currLocale[key]
         const fullPath = keyPath ? `${keyPath}.${key}` : key
 
         expect(currLocaleEntry, `Missing entry "${fullPath}" for locale "${language}"`).toBeDefined()
 
-        if (typeof englishLocaleEntry === "object" && englishLocaleEntry !== null) {
+        if (typeof baseLocaleEntry === "object" && baseLocaleEntry !== null) {
             expect(currLocaleEntry, `Entry "${fullPath}" for locale "${language}" must be an object`).toBeTypeOf(
                 "object"
             )
 
             expectTranslationsRecursively({
-                englishLocale: englishLocaleEntry,
+                baseLocale: baseLocaleEntry,
                 currLocale: currLocaleEntry as INestedRecord<string>,
                 language,
                 path: fullPath
@@ -52,11 +52,11 @@ const readLocaleFile = (language: string): INestedRecord<string> => {
 describe("i18n", () => {
     describe("base", () => {
         it(`should have a non-empty ${BASE_LOCALE} translation file`, () => {
-            const englishLocale = readLocaleFile(BASE_LOCALE)
+            const baseLocale = readLocaleFile(BASE_LOCALE)
 
-            expect(englishLocale).toBeTypeOf("object")
-            expect(englishLocale).not.toBeNull()
-            expect(Object.keys(englishLocale).length, `File for locale "${BASE_LOCALE}" is empty`).toBeGreaterThan(0)
+            expect(baseLocale).toBeTypeOf("object")
+            expect(baseLocale).not.toBeNull()
+            expect(Object.keys(baseLocale).length, `File for locale "${BASE_LOCALE}" is empty`).toBeGreaterThan(0)
         })
     })
 
@@ -70,22 +70,22 @@ describe("i18n", () => {
 
         describe("translations", () => {
             it("should have all translations matching the base locale keys", () => {
-                const englishLocale = readLocaleFile(BASE_LOCALE)
+                const baseLocale = readLocaleFile(BASE_LOCALE)
                 const currLocale = readLocaleFile(language)
 
                 expect(currLocale).toBeTypeOf("object")
                 expect(currLocale).not.toBeNull()
                 expect(Object.keys(currLocale).length, `File for locale "${language}" is empty`).toBeGreaterThan(0)
 
-                expectTranslationsRecursively({ englishLocale, currLocale, language })
+                expectTranslationsRecursively({ baseLocale, currLocale, language })
             })
 
             it("should not contain extra keys beyond the base locale", () => {
-                const englishLocale = readLocaleFile(BASE_LOCALE)
+                const baseLocale = readLocaleFile(BASE_LOCALE)
                 const currLocale = readLocaleFile(language)
 
                 for (const key of Object.keys(currLocale)) {
-                    expect(englishLocale[key], `Unexpected extra key "${key}" in locale "${language}"`).toBeDefined()
+                    expect(baseLocale[key], `Unexpected extra key "${key}" in locale "${language}"`).toBeDefined()
                 }
             })
         })
