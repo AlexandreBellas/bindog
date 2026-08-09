@@ -121,6 +121,8 @@ export interface ISignalingPeerJoinedMessage {
 export interface ISignalingPeerLeftMessage {
     type: typeof SignalingServerMessageType.PeerLeft
     peerId: string
+    /** Present when the departing peer was the leader and another peer was promoted. */
+    newLeaderId: string | null
 }
 
 export interface ISignalingIncomingSignalMessage {

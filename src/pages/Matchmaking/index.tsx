@@ -1,3 +1,4 @@
+import LeaveGameButton from "#/components/LeaveGameButton"
 import { Button } from "#/components/ui/button"
 import { m } from "#/paraglide/messages"
 import { GameEngineMessageType, RoomPhase } from "#/@types/room"
@@ -74,7 +75,8 @@ export default function Matchmaking() {
 
     const localPlayer = room.players.find(player => player.id === room.localPlayerId)
     const isLeader = Boolean(localPlayer?.isLeader)
-    const canStart = gameEngine.canStartGame()
+    // Derive from reactive `room` so React Compiler cannot freeze a stale gateway read.
+    const canStart = isLeader && room.phase === RoomPhase.Lobby && room.players.length >= 2
 
     return (
         <main className="page-wrap relative flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-8 pt-10 sm:pt-14">
@@ -112,7 +114,7 @@ export default function Matchmaking() {
                         <Button
                             type="button"
                             size="lg"
-                            disabled={!canStart || room.phase !== RoomPhase.Lobby}
+                            disabled={!canStart}
                             onClick={handleStartGame}
                             className="h-12 rounded-2xl bg-(--cta) text-base font-bold text-(--cta-foreground)! hover:bg-(--cta-hover)"
                         >
@@ -129,14 +131,7 @@ export default function Matchmaking() {
                         <p className="m-0 text-center text-sm text-(--bark-soft)">{m.error_need_two_players()}</p>
                     ) : null}
 
-                    <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleLeave}
-                        className="rounded-2xl border-(--chip-line)"
-                    >
-                        {m.leave_game()}
-                    </Button>
+                    <LeaveGameButton onConfirm={handleLeave} className="rounded-2xl border-(--chip-line)" />
                 </div>
             </div>
 

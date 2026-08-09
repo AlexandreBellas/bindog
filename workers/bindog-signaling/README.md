@@ -34,9 +34,15 @@ npx wrangler secret put TURN_API_TOKEN
 
 ## Local development
 
+`wrangler secret put` only applies to the **deployed** Worker. For local `wrangler dev`, copy the example vars file and fill in the same TURN values:
+
 ```bash
+cp .env.example .env
+# edit .env → TURN_KEY_ID + TURN_API_TOKEN
 npm run dev
 ```
+
+Without `.env`, `/turn/credentials` still succeeds with public STUN only (fine for same-LAN testing; use real TURN for cross-network peers).
 
 Point the app at the local Worker:
 
@@ -71,11 +77,11 @@ On each published release, [`.github/workflows/deploy.yaml`](../../.github/workf
 
 Add these repository secrets:
 
-| Secret | Where to get it |
-|--------|-----------------|
-| `CLOUDFLARE_API_TOKEN` | Dashboard → My Profile → API Tokens → create token with **Edit Cloudflare Workers** |
-| `CLOUDFLARE_ACCOUNT_ID` | Dashboard → Workers & Pages → right sidebar Account ID |
-| `VITE_SIGNALING_URL` | Worker URL after first deploy (e.g. `https://bindog-signaling.<account>.workers.dev`) |
+| Secret                  | Where to get it                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | Dashboard → My Profile → API Tokens → create token with **Edit Cloudflare Workers**   |
+| `CLOUDFLARE_ACCOUNT_ID` | Dashboard → Workers & Pages → right sidebar Account ID                                |
+| `VITE_SIGNALING_URL`    | Worker URL after first deploy (e.g. `https://bindog-signaling.<account>.workers.dev`) |
 
 Set TURN secrets once (not on every CI run):
 
@@ -88,4 +94,8 @@ CI only needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` to run `wrangler 
 
 ## Notes
 
-Rooms live in Worker memory. That is fine for low-concurrency invite lobbies; recreate the room if the isolate restarts.
+Each room runs in a **Durable Object** so every peer WebSocket for that invite code shares one instance. That is required for `peer-joined` / signal relay / leadership transfer between clients.
+
+Without a DO, Worker isolates cannot reliably push messages onto another request's WebSocket — joiners would see the roster from their own `joined` payload while the leader never learned anyone arrived.
+
+Room metadata lives in DO storage for the lifetime of that object; recreate the room if you wipe local DO state.

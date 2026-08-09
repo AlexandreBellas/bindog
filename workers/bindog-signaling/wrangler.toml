@@ -2,6 +2,17 @@ name = "bindog-signaling"
 main = "src/index.ts"
 compatibility_date = "2025-08-01"
 
-# Set with:
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RoomDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RoomDurableObject"]
+
+# Production secrets:
 #   npx wrangler secret put TURN_KEY_ID
 #   npx wrangler secret put TURN_API_TOKEN
+#
+# Local `wrangler dev` secrets (not shared with production):
+#   cp .env.example .env

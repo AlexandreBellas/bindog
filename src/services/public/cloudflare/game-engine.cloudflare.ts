@@ -333,8 +333,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 break
             }
             case SignalingServerMessageType.PeerLeft: {
-                this.teardownPeer(message.peerId)
-                if (this.state) this.setState(this.removePlayer(this.state, message.peerId))
+                this.handlePeerLeft(message.peerId, message.newLeaderId)
                 break
             }
             case SignalingServerMessageType.Signal: {
@@ -344,6 +343,34 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             default:
                 break
         }
+    }
+
+    private handlePeerLeft(peerId: string, newLeaderId: string | null): void {
+        this.teardownPeer(peerId)
+        if (!this.state) return
+
+        let next = this.removePlayer(this.state, peerId)
+        const becameLeader = Boolean(newLeaderId && newLeaderId === this.localPeerId && !this.isLeader)
+
+        if (newLeaderId) {
+            next = this.applyLeader(next, newLeaderId)
+            this.isLeader = this.localPeerId === newLeaderId
+        }
+
+        this.setState(next)
+
+        if (becameLeader) {
+            this.closeAllPeers()
+            for (const player of next.players) {
+                if (player.id === this.localPeerId) continue
+                void this.connectToJoiner(player.id).catch(() => {
+                    // Peer may disconnect while the offer is being prepared.
+                })
+            }
+            return
+        }
+
+        if (this.isLeader) this.broadcastSync()
     }
 
     private async connectToJoiner(peerId: string): Promise<void> {
@@ -443,7 +470,12 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         if (link) link.channel = channel
 
         channel.addEventListener("open", () => {
-            if (this.isLeader) this.broadcastSync()
+            if (this.isLeader) {
+                this.broadcastSync()
+                return
+            }
+
+            this.sendPeerHello(peerId)
         })
 
         channel.addEventListener("message", event => {
@@ -460,6 +492,25 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             if (!message) return
             this.handleDataChannelMessage(message)
         })
+    }
+
+    private sendPeerHello(peerId: string): void {
+        const state = this.state
+        const localPlayerId = this.localPeerId
+        if (!state || !localPlayerId) return
+
+        const local = state.players.find(player => player.id === localPlayerId)
+        if (!local) return
+
+        const link = this.peers.get(peerId)
+        if (!link?.channel || link.channel.readyState !== "open") return
+
+        link.channel.send(
+            JSON.stringify({
+                type: DataChannelMessageType.PeerHello,
+                player: local
+            })
+        )
     }
 
     private handleDataChannelMessage(message: IDataChannelMessage): void {

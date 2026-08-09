@@ -91,6 +91,19 @@ export default abstract class BaseWebRtcService {
     }
 
     /**
+     * Reassigns the leader crown after a leadership transfer.
+     */
+    protected applyLeader(state: IRoomState, newLeaderId: string): IRoomState {
+        return {
+            ...state,
+            players: state.players.map(player => ({
+                ...player,
+                isLeader: player.id === newLeaderId
+            }))
+        }
+    }
+
+    /**
      * Applies a countdown tick. When value is 0, transitions to playing.
      */
     protected applyCountdown(state: IRoomState, value: number): IRoomState {
@@ -213,7 +226,13 @@ export default abstract class BaseWebRtcService {
 
         if (type === SignalingServerMessageType.PeerLeft) {
             if (typeof record.peerId !== "string") return null
-            return { type: SignalingServerMessageType.PeerLeft, peerId: record.peerId }
+            const newLeaderId =
+                record.newLeaderId === null || typeof record.newLeaderId === "string" ? record.newLeaderId : null
+            return {
+                type: SignalingServerMessageType.PeerLeft,
+                peerId: record.peerId,
+                newLeaderId
+            }
         }
 
         if (type === SignalingServerMessageType.Signal) {

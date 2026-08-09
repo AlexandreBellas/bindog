@@ -31,6 +31,10 @@ class TestableWebRtcService extends BaseWebRtcService {
         return super.removePlayer(...args)
     }
 
+    public applyLeader(...args: Parameters<BaseWebRtcService["applyLeader"]>) {
+        return super.applyLeader(...args)
+    }
+
     public applyCountdown(...args: Parameters<BaseWebRtcService["applyCountdown"]>) {
         return super.applyCountdown(...args)
     }
@@ -136,6 +140,14 @@ describe("removePlayer", () => {
     })
 })
 
+describe("applyLeader", () => {
+    it("moves the crown to the promoted peer", () => {
+        const next = service.applyLeader(makeState(), "joiner-1")
+        expect(next.players.find(player => player.id === "leader-1")?.isLeader).toBe(false)
+        expect(next.players.find(player => player.id === "joiner-1")?.isLeader).toBe(true)
+    })
+})
+
 describe("applyCountdown", () => {
     it("sets countdown phase for positive values", () => {
         expect(service.applyCountdown(makeState(), 3)).toMatchObject({
@@ -208,7 +220,15 @@ describe("parseSignalingServerMessage", () => {
                 type: SignalingServerMessageType.PeerLeft,
                 peerId: "2"
             })
-        ).toEqual({ type: SignalingServerMessageType.PeerLeft, peerId: "2" })
+        ).toEqual({ type: SignalingServerMessageType.PeerLeft, peerId: "2", newLeaderId: null })
+
+        expect(
+            service.parseSignalingServerMessage({
+                type: SignalingServerMessageType.PeerLeft,
+                peerId: "2",
+                newLeaderId: "3"
+            })
+        ).toEqual({ type: SignalingServerMessageType.PeerLeft, peerId: "2", newLeaderId: "3" })
     })
 
     it("returns null for malformed signaling payloads", () => {

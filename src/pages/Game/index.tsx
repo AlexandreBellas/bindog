@@ -1,4 +1,4 @@
-import { Button } from "#/components/ui/button"
+import LeaveGameButton from "#/components/LeaveGameButton"
 import { m } from "#/paraglide/messages"
 import type { IRoomState } from "#/@types/room"
 import gameEngine from "#/services/public/game-engine"
@@ -47,13 +47,11 @@ export default function Game() {
                     {m.game_page_title()}
                 </h1>
                 <p className="m-0 text-base text-(--bark-soft) sm:text-lg">{m.game_page_placeholder()}</p>
-                <Button
-                    type="button"
-                    onClick={handleLeave}
-                    className="rounded-2xl bg-destructive font-bold text-destructive-foreground hover:bg-destructive/90"
-                >
-                    {m.leave_game()}
-                </Button>
+                <LeaveGameButton
+                    onConfirm={handleLeave}
+                    variant="destructive"
+                    className="rounded-2xl font-bold"
+                />
             </div>
         </main>
     )
