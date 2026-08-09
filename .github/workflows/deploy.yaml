@@ -26,6 +26,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The FTP action runs as an unprivileged user and writes credentials to ~/.netrc
+      # under /github/home (mapped from RUNNER_TEMP/_github_home).
+      - name: Make container HOME writable
+        run: |
+          mkdir -p "${RUNNER_TEMP}/_github_home"
+          chmod 777 "${RUNNER_TEMP}/_github_home"
+
       - name: Upload via FTP
         uses: airvzxf/ftp-deployment-action@v2
         with:
