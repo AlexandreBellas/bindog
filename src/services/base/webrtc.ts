@@ -1,3 +1,5 @@
+import type { IBingoBoard, IGameState, IPlayerProgress, IProgressLineKind } from "#/@types/game"
+import { progressLineKinds } from "#/@types/game"
 import type { IRoomPhase, IRoomPlayer, IRoomState } from "#/@types/room"
 import { RoomPhase, roomPhases } from "#/@types/room"
 import type {
@@ -153,13 +155,17 @@ export default abstract class BaseWebRtcService {
             if (typeof record.code !== "string" || typeof record.name !== "string") return null
             if (!this.isRoomPhase(record.phase)) return null
 
+            const game = record.game === null || record.game === undefined ? null : this.parseGameState(record.game)
+            if (record.game !== null && record.game !== undefined && !game) return null
+
             return {
                 type: DataChannelMessageType.Sync,
                 code: record.code,
                 name: record.name,
                 players,
                 phase: record.phase,
-                countdown: typeof record.countdown === "number" ? record.countdown : null
+                countdown: typeof record.countdown === "number" ? record.countdown : null,
+                game
             }
         }
 
@@ -185,6 +191,46 @@ export default abstract class BaseWebRtcService {
                     isLeader: Boolean(player.isLeader)
                 }
             }
+        }
+
+        if (type === DataChannelMessageType.GameSnapshot) {
+            if (!this.isRoomPhase(record.phase)) return null
+            const game = this.parseGameState(record.game)
+            if (!game) return null
+            return { type: DataChannelMessageType.GameSnapshot, phase: record.phase, game }
+        }
+
+        if (type === DataChannelMessageType.BreedAnnounced) {
+            if (typeof record.breedId !== "string") return null
+            if (typeof record.announceStartedAt !== "number") return null
+            if (!this.isStringArray(record.announced) || !this.isStringArray(record.callOrder)) return null
+
+            return {
+                type: DataChannelMessageType.BreedAnnounced,
+                breedId: record.breedId,
+                announced: record.announced,
+                callOrder: record.callOrder,
+                announceStartedAt: record.announceStartedAt
+            }
+        }
+
+        if (type === DataChannelMessageType.FakeBingo) {
+            if (typeof record.playerId !== "string") return null
+            return { type: DataChannelMessageType.FakeBingo, playerId: record.playerId }
+        }
+
+        if (type === DataChannelMessageType.GameEnded) {
+            if (typeof record.winnerId !== "string") return null
+            const game = this.parseGameState(record.game)
+            if (!game) return null
+            const progress = this.parsePlayerProgressList(record.progress)
+            if (!progress) return null
+            return { type: DataChannelMessageType.GameEnded, winnerId: record.winnerId, progress, game }
+        }
+
+        if (type === DataChannelMessageType.ClaimBingo) {
+            if (typeof record.playerId !== "string") return null
+            return { type: DataChannelMessageType.ClaimBingo, playerId: record.playerId }
         }
 
         return null
@@ -376,5 +422,97 @@ export default abstract class BaseWebRtcService {
         }
 
         return players
+    }
+
+    /**
+     * Narrows an unknown payload into a game state snapshot.
+     */
+    protected parseGameState(value: unknown): IGameState | null {
+        if (!value || typeof value !== "object") return null
+
+        const record = value as Record<string, unknown>
+        if (!this.isStringArray(record.callOrder) || !this.isStringArray(record.announced)) return null
+        if (typeof record.announceIntervalMs !== "number") return null
+        if (record.currentBreedId !== null && typeof record.currentBreedId !== "string") return null
+        if (record.announceStartedAt !== null && typeof record.announceStartedAt !== "number") return null
+        if (record.winnerId !== null && typeof record.winnerId !== "string") return null
+        if (record.fakeBingoPlayerId !== null && typeof record.fakeBingoPlayerId !== "string") return null
+
+        const boards = this.parseBoards(record.boards)
+        if (!boards) return null
+
+        let progress: IPlayerProgress[] | null = null
+        if (record.progress !== null && record.progress !== undefined) {
+            progress = this.parsePlayerProgressList(record.progress)
+            if (!progress) return null
+        }
+
+        return {
+            callOrder: record.callOrder,
+            announced: record.announced,
+            currentBreedId: record.currentBreedId,
+            announceIntervalMs: record.announceIntervalMs,
+            announceStartedAt: record.announceStartedAt,
+            boards,
+            winnerId: record.winnerId,
+            fakeBingoPlayerId: record.fakeBingoPlayerId,
+            progress
+        }
+    }
+
+    private parseBoards(value: unknown): Record<string, IBingoBoard> | null {
+        if (!value || typeof value !== "object") return null
+
+        const boards: Record<string, IBingoBoard> = {}
+
+        for (const [playerId, boardValue] of Object.entries(value as Record<string, unknown>)) {
+            if (!boardValue || typeof boardValue !== "object") return null
+            const cellsValue = (boardValue as Record<string, unknown>).cells
+            if (!Array.isArray(cellsValue) || cellsValue.length !== 25) return null
+
+            const cells: Array<string | null> = []
+            for (const cell of cellsValue) {
+                if (cell !== null && typeof cell !== "string") return null
+                cells.push(cell)
+            }
+
+            boards[playerId] = { cells }
+        }
+
+        return boards
+    }
+
+    private parsePlayerProgressList(value: unknown): IPlayerProgress[] | null {
+        if (!Array.isArray(value)) return null
+
+        const progress: IPlayerProgress[] = []
+
+        for (const item of value) {
+            if (!item || typeof item !== "object") return null
+            const record = item as Record<string, unknown>
+            if (typeof record.playerId !== "string" || typeof record.nickname !== "string") return null
+            if (!this.isProgressLineKind(record.kind)) return null
+            if (typeof record.index !== "number" || typeof record.filled !== "number") return null
+            if (record.total !== 5) return null
+
+            progress.push({
+                playerId: record.playerId,
+                nickname: record.nickname,
+                kind: record.kind,
+                index: record.index,
+                filled: record.filled,
+                total: 5
+            })
+        }
+
+        return progress
+    }
+
+    private isProgressLineKind(value: unknown): value is IProgressLineKind {
+        return typeof value === "string" && (progressLineKinds as readonly string[]).includes(value)
+    }
+
+    private isStringArray(value: unknown): value is string[] {
+        return Array.isArray(value) && value.every(item => typeof item === "string")
     }
 }

@@ -71,6 +71,7 @@ function makeState(overrides: Partial<IRoomState> = {}): IRoomState {
         phase: RoomPhase.Lobby,
         countdown: null,
         localPlayerId: "leader-1",
+        game: null,
         ...overrides
     }
 }
@@ -186,9 +187,10 @@ describe("parseDataChannelMessage", () => {
                 name: "Room",
                 players: [{ id: "1", nickname: "A", isLeader: true }],
                 phase: "lobby",
-                countdown: null
+                countdown: null,
+                game: null
             })
-        ).toMatchObject({ type: DataChannelMessageType.Sync, code: "ABCDEF" })
+        ).toMatchObject({ type: DataChannelMessageType.Sync, code: "ABCDEF", game: null })
 
         expect(service.parseDataChannelMessage({ type: DataChannelMessageType.Countdown, value: 2 })).toEqual({
             type: DataChannelMessageType.Countdown,
@@ -198,6 +200,68 @@ describe("parseDataChannelMessage", () => {
         expect(service.parseDataChannelMessage({ type: DataChannelMessageType.Playing })).toEqual({
             type: DataChannelMessageType.Playing
         })
+    })
+
+    it("parses game snapshot, breed announce, fake bingo, ended, and claim messages", () => {
+        const board = { cells: Array.from({ length: 25 }, (_, index) => (index === 12 ? null : `b-${index}`)) }
+        const game = {
+            callOrder: ["a", "b"],
+            announced: ["c"],
+            currentBreedId: "c",
+            announceIntervalMs: 5000,
+            announceStartedAt: 100,
+            boards: { "1": board },
+            winnerId: null,
+            fakeBingoPlayerId: null,
+            progress: null
+        }
+
+        expect(
+            service.parseDataChannelMessage({
+                type: DataChannelMessageType.GameSnapshot,
+                phase: "playing",
+                game
+            })
+        ).toMatchObject({ type: DataChannelMessageType.GameSnapshot, phase: "playing" })
+
+        expect(
+            service.parseDataChannelMessage({
+                type: DataChannelMessageType.BreedAnnounced,
+                breedId: "a",
+                announced: ["a"],
+                callOrder: ["b"],
+                announceStartedAt: 123
+            })
+        ).toEqual({
+            type: DataChannelMessageType.BreedAnnounced,
+            breedId: "a",
+            announced: ["a"],
+            callOrder: ["b"],
+            announceStartedAt: 123
+        })
+
+        expect(
+            service.parseDataChannelMessage({
+                type: DataChannelMessageType.FakeBingo,
+                playerId: "1"
+            })
+        ).toEqual({ type: DataChannelMessageType.FakeBingo, playerId: "1" })
+
+        expect(
+            service.parseDataChannelMessage({
+                type: DataChannelMessageType.ClaimBingo,
+                playerId: "1"
+            })
+        ).toEqual({ type: DataChannelMessageType.ClaimBingo, playerId: "1" })
+
+        expect(
+            service.parseDataChannelMessage({
+                type: DataChannelMessageType.GameEnded,
+                winnerId: "1",
+                progress: [{ playerId: "1", nickname: "A", kind: "row", index: 0, filled: 5, total: 5 }],
+                game: { ...game, winnerId: "1", progress: [] }
+            })
+        ).toMatchObject({ type: DataChannelMessageType.GameEnded, winnerId: "1" })
     })
 
     it("returns null for invalid payloads", () => {

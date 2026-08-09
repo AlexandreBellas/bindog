@@ -1,9 +1,11 @@
 import type IGameEngineGateway from "../IGameEngineGateway"
 import type { IRoomStateListener } from "../IGameEngineGateway"
-import { ConnectRole, RoomPhase } from "#/@types/room"
+import type { IGameState, IPlayerProgress } from "#/@types/game"
+import { ConnectRole, GameEngineMessageType, RoomPhase } from "#/@types/room"
 import type { IConnectInput, IGameEngineMessage, IRoomState } from "#/@types/room"
 import {
     DataChannelMessageType,
+    IceTransportPath,
     SignalingClientMessageType,
     SignalingServerMessageType,
     WebRtcSignalKind
@@ -16,7 +18,10 @@ import type {
     ISyncMessage,
     IWebRtcSignalPayload
 } from "#/@types/signaling"
+import { ANNOUNCE_INTERVAL_MS } from "#/constants/announce"
+import { BREED_IDS } from "#/constants/breeds"
 import { COUNTDOWN_START, COUNTDOWN_TICK_MS } from "#/constants/countdown"
+import { bestLineProgress, dealAllBoards, isLegitimateBingo, shuffleCallOrder } from "#/services/base/utils/bingo"
 import BaseWebRtcService from "#/services/base/webrtc"
 
 interface IPeerLink {
@@ -34,7 +39,9 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
     private localPeerId: string | null = null
     private isLeader = false
     private countdownTimer: ReturnType<typeof setTimeout> | null = null
+    private announceTimer: ReturnType<typeof setTimeout> | null = null
     private connectAbort: AbortController | null = null
+    private sessionUsedTurn = false
 
     public async connect(input: IConnectInput): Promise<IRoomState> {
         await this.disconnect()
@@ -80,7 +87,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 ],
                 phase: RoomPhase.Lobby,
                 countdown: null,
-                localPlayerId: this.localPeerId
+                localPlayerId: this.localPeerId,
+                game: null
             }
             this.emit()
 
@@ -94,6 +102,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
 
     public async disconnect(): Promise<void> {
         this.clearCountdownTimer()
+        this.clearAnnounceTimer()
         this.connectAbort?.abort()
         this.connectAbort = null
 
@@ -107,6 +116,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         this.state = null
         this.localPeerId = null
         this.isLeader = false
+        this.sessionUsedTurn = false
         this.iceServers = []
         this.emit()
     }
@@ -116,13 +126,22 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         this.listeners.clear()
     }
 
-    public send(_message: IGameEngineMessage): void {
-        const state = this.requireState()
-        if (!this.evaluateCanStartGame(state)) {
-            throw new Error("Need at least two players to start")
+    public send(message: IGameEngineMessage): void {
+        if (message.type === GameEngineMessageType.StartGame) {
+            const state = this.requireState()
+            if (!this.evaluateCanStartGame(state)) {
+                throw new Error("Need at least two players to start")
+            }
+            void this.beginCountdown()
+            return
         }
 
-        void this.beginCountdown()
+        if (message.type === GameEngineMessageType.ClaimBingo) {
+            this.requestClaimBingo()
+            return
+        }
+
+        void this.restartGame()
     }
 
     public subscribe(listener: IRoomStateListener): () => void {
@@ -165,7 +184,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         }
     }
 
-    private async fetchIceServers(signal: AbortSignal): Promise<RTCIceServer[]> {
+    private async fetchIceServers(signal?: AbortSignal): Promise<RTCIceServer[]> {
         const response = await fetch(`${this.getSignalingHttpUrl()}/turn/credentials`, {
             method: "POST",
             signal
@@ -357,6 +376,10 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             this.isLeader = this.localPeerId === newLeaderId
         }
 
+        if (!this.isLeader) {
+            this.clearAnnounceTimer()
+        }
+
         this.setState(next)
 
         if (becameLeader) {
@@ -367,6 +390,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                     // Peer may disconnect while the offer is being prepared.
                 })
             }
+            this.resumeAnnounceLoop()
             return
         }
 
@@ -459,6 +483,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         connection.addEventListener("connectionstatechange", () => {
             if (connection.connectionState === "connected") {
                 this.logIceTransportPathIfDev(connection, peerId)
+                void this.trackTurnUsage(connection)
             }
 
             if (connection.connectionState === "failed" || connection.connectionState === "closed") {
@@ -467,6 +492,18 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         })
 
         return connection
+    }
+
+    private async trackTurnUsage(connection: RTCPeerConnection): Promise<void> {
+        let path = await this.resolveIceTransportPath(connection)
+        if (path === IceTransportPath.Unknown) {
+            await new Promise(resolve => setTimeout(resolve, 250))
+            path = await this.resolveIceTransportPath(connection)
+        }
+
+        if (path === IceTransportPath.Turn) {
+            this.sessionUsedTurn = true
+        }
     }
 
     private attachDataChannel(peerId: string, channel: RTCDataChannel): void {
@@ -529,7 +566,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                     name: message.name,
                     players: message.players,
                     phase: message.phase,
-                    countdown: message.countdown
+                    countdown: message.countdown,
+                    game: message.game
                 })
                 break
             }
@@ -543,6 +581,61 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             }
             case DataChannelMessageType.PeerHello: {
                 this.setState(this.upsertPlayer(state, message.player))
+                break
+            }
+            case DataChannelMessageType.GameSnapshot: {
+                this.setState({
+                    ...state,
+                    phase: message.phase,
+                    countdown: null,
+                    game: message.game
+                })
+                break
+            }
+            case DataChannelMessageType.BreedAnnounced: {
+                if (!state.game) break
+                this.setState({
+                    ...state,
+                    game: {
+                        ...state.game,
+                        currentBreedId: message.breedId,
+                        announced: message.announced,
+                        callOrder: message.callOrder,
+                        announceStartedAt: message.announceStartedAt,
+                        fakeBingoPlayerId: null
+                    }
+                })
+                break
+            }
+            case DataChannelMessageType.FakeBingo: {
+                if (!state.game) break
+                this.setState({
+                    ...state,
+                    game: {
+                        ...state.game,
+                        fakeBingoPlayerId: message.playerId
+                    }
+                })
+                break
+            }
+            case DataChannelMessageType.GameEnded: {
+                this.clearAnnounceTimer()
+                this.setState({
+                    ...state,
+                    phase: RoomPhase.Ended,
+                    countdown: null,
+                    game: {
+                        ...message.game,
+                        winnerId: message.winnerId,
+                        progress: message.progress,
+                        fakeBingoPlayerId: null
+                    }
+                })
+                break
+            }
+            case DataChannelMessageType.ClaimBingo: {
+                if (!this.isLeader) break
+                this.resolveClaimBingo(message.playerId)
                 break
             }
             default:
@@ -560,10 +653,22 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             name: state.name,
             players: state.players,
             phase: state.phase,
-            countdown: state.countdown
+            countdown: state.countdown,
+            game: state.game
         }
 
         this.broadcast(message)
+    }
+
+    private broadcastGameSnapshot(): void {
+        const state = this.state
+        if (!state?.game || !this.isLeader) return
+
+        this.broadcast({
+            type: DataChannelMessageType.GameSnapshot,
+            phase: state.phase,
+            game: state.game
+        })
     }
 
     private broadcast(message: IDataChannelMessage): void {
@@ -578,6 +683,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
 
     private async beginCountdown(): Promise<void> {
         this.clearCountdownTimer()
+        this.clearAnnounceTimer()
 
         try {
             let value: number = COUNTDOWN_START
@@ -597,11 +703,241 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 value -= 1
             }
 
-            if (!this.state) return
-            this.setState(this.applyPlaying(this.state))
-            this.broadcast({ type: DataChannelMessageType.Playing })
+            if (!this.state || !this.isLeader) return
+            this.beginPlayingRound()
         } catch {
             // Session may have disconnected mid-countdown.
+        }
+    }
+
+    private beginPlayingRound(): void {
+        const state = this.requireState()
+        const game = this.createDealtGame(state.players.map(player => player.id))
+        const next: IRoomState = {
+            ...this.applyPlaying(state),
+            game
+        }
+
+        this.setState(next)
+        this.broadcast({ type: DataChannelMessageType.Playing })
+        this.broadcastGameSnapshot()
+        this.startAnnounceLoop(true)
+    }
+
+    private createDealtGame(playerIds: string[]): IGameState {
+        return {
+            callOrder: shuffleCallOrder(BREED_IDS),
+            announced: [],
+            currentBreedId: null,
+            announceIntervalMs: ANNOUNCE_INTERVAL_MS,
+            announceStartedAt: null,
+            boards: dealAllBoards(playerIds, BREED_IDS),
+            winnerId: null,
+            fakeBingoPlayerId: null,
+            progress: null
+        }
+    }
+
+    private startAnnounceLoop(immediate: boolean): void {
+        this.clearAnnounceTimer()
+        if (!this.isLeader) return
+
+        if (immediate) {
+            this.announceNextBreed()
+        }
+
+        this.scheduleNextAnnounce()
+    }
+
+    private resumeAnnounceLoop(): void {
+        this.clearAnnounceTimer()
+        if (!this.isLeader) return
+
+        const state = this.state
+        if (!state?.game || state.phase !== RoomPhase.Playing) return
+
+        if (state.game.currentBreedId === null && state.game.callOrder.length > 0) {
+            this.startAnnounceLoop(true)
+            return
+        }
+
+        this.scheduleNextAnnounce()
+    }
+
+    private scheduleNextAnnounce(): void {
+        this.clearAnnounceTimer()
+        if (!this.isLeader) return
+
+        const state = this.state
+        if (!state?.game || state.phase !== RoomPhase.Playing) return
+        if (state.game.callOrder.length === 0) return
+
+        const interval = state.game.announceIntervalMs
+        const startedAt = state.game.announceStartedAt
+        const delay =
+            startedAt === null ? interval : Math.max(0, startedAt + interval - Date.now())
+
+        this.announceTimer = setTimeout(() => {
+            this.announceTimer = null
+            this.announceNextBreed()
+            this.scheduleNextAnnounce()
+        }, delay)
+    }
+
+    private announceNextBreed(): void {
+        const state = this.state
+        if (!state?.game || state.phase !== RoomPhase.Playing || !this.isLeader) return
+        if (state.game.callOrder.length === 0) {
+            this.clearAnnounceTimer()
+            return
+        }
+
+        const [nextBreedId, ...remaining] = state.game.callOrder
+        if (!nextBreedId) return
+
+        const announceStartedAt = Date.now()
+        const announced = [...state.game.announced, nextBreedId]
+        const game: IGameState = {
+            ...state.game,
+            callOrder: remaining,
+            announced,
+            currentBreedId: nextBreedId,
+            announceStartedAt,
+            fakeBingoPlayerId: null
+        }
+
+        this.setState({ ...state, game })
+        this.broadcast({
+            type: DataChannelMessageType.BreedAnnounced,
+            breedId: nextBreedId,
+            announced,
+            callOrder: remaining,
+            announceStartedAt
+        })
+    }
+
+    private requestClaimBingo(): void {
+        const state = this.requireState()
+        const localPlayerId = this.localPeerId
+        if (!localPlayerId) return
+        if (state.phase !== RoomPhase.Playing || !state.game) return
+
+        if (this.isLeader) {
+            this.resolveClaimBingo(localPlayerId)
+            return
+        }
+
+        this.broadcast({
+            type: DataChannelMessageType.ClaimBingo,
+            playerId: localPlayerId
+        })
+    }
+
+    private resolveClaimBingo(playerId: string): void {
+        const state = this.state
+        if (!state?.game || state.phase !== RoomPhase.Playing || !this.isLeader) return
+
+        const game = state.game
+        if (!(playerId in game.boards)) return
+        const board = game.boards[playerId]
+
+        if (!isLegitimateBingo(board, game.announced)) {
+            const nextGame: IGameState = {
+                ...game,
+                fakeBingoPlayerId: playerId
+            }
+            this.setState({ ...state, game: nextGame })
+            this.broadcast({
+                type: DataChannelMessageType.FakeBingo,
+                playerId
+            })
+            return
+        }
+
+        this.clearAnnounceTimer()
+
+        const progress: IPlayerProgress[] = state.players.map(player => {
+            const playerBoard = Object.hasOwn(game.boards, player.id) ? game.boards[player.id] : null
+            const line =
+                playerBoard === null
+                    ? { kind: "row" as const, index: 0, filled: 0, total: 5 as const }
+                    : bestLineProgress(playerBoard, game.announced)
+
+            return {
+                playerId: player.id,
+                nickname: player.nickname,
+                ...line
+            }
+        })
+
+        progress.sort((left, right) => right.filled - left.filled)
+
+        const endedGame: IGameState = {
+            ...game,
+            winnerId: playerId,
+            fakeBingoPlayerId: null,
+            progress
+        }
+
+        this.setState({
+            ...state,
+            phase: RoomPhase.Ended,
+            countdown: null,
+            game: endedGame
+        })
+
+        this.broadcast({
+            type: DataChannelMessageType.GameEnded,
+            winnerId: playerId,
+            progress,
+            game: endedGame
+        })
+    }
+
+    private async restartGame(): Promise<void> {
+        const state = this.requireState()
+        if (!this.isLeader || state.phase !== RoomPhase.Ended) return
+
+        this.clearAnnounceTimer()
+
+        try {
+            if (this.sessionUsedTurn) {
+                this.iceServers = await this.fetchIceServers()
+                await this.restartIceOnPeers()
+            }
+
+            const latest = this.requireState()
+            const game = this.createDealtGame(latest.players.map(player => player.id))
+            this.setState({
+                ...latest,
+                phase: RoomPhase.Playing,
+                countdown: null,
+                game
+            })
+            this.broadcastGameSnapshot()
+            this.startAnnounceLoop(true)
+        } catch {
+            // Session may disconnect while reminting TURN / restarting ICE.
+        }
+    }
+
+    private async restartIceOnPeers(): Promise<void> {
+        for (const link of this.peers.values()) {
+            try {
+                link.connection.setConfiguration({ iceServers: this.iceServers })
+                const offer = await link.connection.createOffer({ iceRestart: true })
+                await link.connection.setLocalDescription(offer)
+                this.sendSignaling({
+                    type: SignalingClientMessageType.Signal,
+                    to: link.peerId,
+                    payload: {
+                        kind: WebRtcSignalKind.Offer,
+                        sdp: offer
+                    }
+                })
+            } catch {
+                // Peer may have disconnected during restart.
+            }
         }
     }
 
@@ -651,5 +987,11 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         if (!this.countdownTimer) return
         clearTimeout(this.countdownTimer)
         this.countdownTimer = null
+    }
+
+    private clearAnnounceTimer(): void {
+        if (!this.announceTimer) return
+        clearTimeout(this.announceTimer)
+        this.announceTimer = null
     }
 }

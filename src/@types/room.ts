@@ -1,13 +1,15 @@
+import type { IGameState } from "./game"
 import type { IKeyable } from "#/utils/types/keyable"
 
-export const roomPhases = ["lobby", "countdown", "playing"] as const
+export const roomPhases = ["lobby", "countdown", "playing", "ended"] as const
 
 export type IRoomPhase = (typeof roomPhases)[number]
 
 export const RoomPhase = {
     Lobby: "lobby",
     Countdown: "countdown",
-    Playing: "playing"
+    Playing: "playing",
+    Ended: "ended"
 } as const satisfies Record<IKeyable<IRoomPhase>, IRoomPhase>
 
 export const connectRoles = ["leader", "joiner"] as const
@@ -32,6 +34,7 @@ export interface IRoomState {
     phase: IRoomPhase
     countdown: number | null
     localPlayerId: string
+    game: IGameState | null
 }
 
 export interface IConnectAsLeader {
@@ -48,16 +51,26 @@ export interface IConnectAsJoiner {
 
 export type IConnectInput = IConnectAsLeader | IConnectAsJoiner
 
-export const gameEngineMessageTypes = ["start-game"] as const
+export const gameEngineMessageTypes = ["start-game", "claim-bingo", "restart-game"] as const
 
 export type IGameEngineMessageType = (typeof gameEngineMessageTypes)[number]
 
 export const GameEngineMessageType = {
-    StartGame: "start-game"
+    StartGame: "start-game",
+    ClaimBingo: "claim-bingo",
+    RestartGame: "restart-game"
 } as const satisfies Record<IKeyable<IGameEngineMessageType>, IGameEngineMessageType>
 
 export interface IStartGameMessage {
     type: typeof GameEngineMessageType.StartGame
 }
 
-export type IGameEngineMessage = IStartGameMessage
+export interface IClaimBingoMessage {
+    type: typeof GameEngineMessageType.ClaimBingo
+}
+
+export interface IRestartGameMessage {
+    type: typeof GameEngineMessageType.RestartGame
+}
+
+export type IGameEngineMessage = IStartGameMessage | IClaimBingoMessage | IRestartGameMessage

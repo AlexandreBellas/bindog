@@ -1,8 +1,8 @@
+import type { IRoomState } from "#/@types/room"
+import { GameEngineMessageType, RoomPhase } from "#/@types/room"
 import LeaveGameButton from "#/components/LeaveGameButton"
 import { Button } from "#/components/ui/button"
 import { m } from "#/paraglide/messages"
-import { GameEngineMessageType, RoomPhase } from "#/@types/room"
-import type { IRoomState } from "#/@types/room"
 import gameEngine from "#/services/public/game-engine"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
@@ -65,7 +65,7 @@ export default function Matchmaking() {
      * Move into the game shell once countdown finishes.
      */
     useEffect(() => {
-        if (room?.phase === RoomPhase.Playing) {
+        if (room?.phase === RoomPhase.Playing || room?.phase === RoomPhase.Ended) {
             void navigate({ to: "/game" })
         }
     }, [navigate, room?.phase])

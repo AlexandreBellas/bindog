@@ -1,4 +1,8 @@
 import { ConnectRole, GameEngineMessageType, RoomPhase } from "#/@types/room"
+import type { IRoomState } from "#/@types/room"
+import type { IGameState } from "#/@types/game"
+import { ANNOUNCE_INTERVAL_MS } from "#/constants/announce"
+import { WILD_CELL_INDEX } from "#/constants/breeds"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import GameEngineCloudflare from "./game-engine.cloudflare"
 
@@ -66,14 +70,12 @@ class MockRTCDataChannel {
 
 class MockRTCPeerConnection {
     public connectionState: RTCPeerConnectionState = "new"
+    public setConfiguration = vi.fn()
+    public createOffer = vi.fn(async (): Promise<RTCSessionDescriptionInit> => ({ type: "offer", sdp: "v=0" }))
     private listeners = new Map<string, Set<() => void>>()
 
     public createDataChannel(): MockRTCDataChannel {
         return new MockRTCDataChannel()
-    }
-
-    public async createOffer(): Promise<RTCSessionDescriptionInit> {
-        return { type: "offer", sdp: "v=0" }
     }
 
     public async createAnswer(): Promise<RTCSessionDescriptionInit> {
@@ -101,6 +103,70 @@ class MockRTCPeerConnection {
     public close(): void {
         this.connectionState = "closed"
     }
+}
+
+type EngineInternals = {
+    signalingSocket: MockWebSocket | null
+    sessionUsedTurn: boolean
+    state: IRoomState | null
+    peers: Map<string, { peerId: string; connection: MockRTCPeerConnection; channel: MockRTCDataChannel | null }>
+}
+
+async function connectLeaderWithJoiner(engine: GameEngineCloudflare): Promise<string> {
+    const connectPromise = engine.connect({
+        role: ConnectRole.Leader,
+        roomName: "Pup pack",
+        nickname: "Alpha"
+    })
+
+    await vi.waitFor(() => {
+        const socket = (engine as unknown as EngineInternals).signalingSocket
+        expect(socket?.readyState).toBe(MockWebSocket.OPEN)
+    })
+
+    const socket = (engine as unknown as EngineInternals).signalingSocket!
+    const joinPayload = JSON.parse(socket.sent[0] as string) as { peerId: string }
+
+    socket.emit(
+        "message",
+        JSON.stringify({
+            type: "joined",
+            peerId: joinPayload.peerId,
+            roomCode: "ABCDEF",
+            roomName: "Pup pack",
+            peers: [{ id: joinPayload.peerId, nickname: "Alpha", isLeader: true }]
+        })
+    )
+
+    await connectPromise
+
+    socket.emit(
+        "message",
+        JSON.stringify({
+            type: "peer-joined",
+            peer: { id: "joiner-1", nickname: "Beta", isLeader: false }
+        })
+    )
+
+    return joinPayload.peerId
+}
+
+async function startPlaying(engine: GameEngineCloudflare): Promise<void> {
+    engine.send({ type: GameEngineMessageType.StartGame })
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+    expect(engine.getState()?.game).not.toBeNull()
+}
+
+function coverCenterRow(game: IGameState, playerId: string): string[] {
+    const board = game.boards[playerId]
+    if (!board) throw new Error("missing board")
+    return board.cells.filter((cell, index): cell is string => {
+        const row = Math.floor(index / 5)
+        return row === 2 && cell !== null
+    })
 }
 
 describe("GameEngineCloudflare", () => {
@@ -145,60 +211,139 @@ describe("GameEngineCloudflare", () => {
         vi.useFakeTimers()
 
         const engine = new GameEngineCloudflare()
-        const connectPromise = engine.connect({
-            role: ConnectRole.Leader,
-            roomName: "Pup pack",
-            nickname: "Alpha"
-        })
+        await connectLeaderWithJoiner(engine)
+        await startPlaying(engine)
 
-        await vi.waitFor(() => {
-            const socket = (engine as unknown as { signalingSocket: MockWebSocket | null }).signalingSocket
-            expect(socket?.readyState).toBe(MockWebSocket.OPEN)
-        })
+        const game = engine.getState()?.game
+        expect(game?.boards).toBeTruthy()
+        expect(game?.currentBreedId).toBeTruthy()
+        expect(game?.announced).toHaveLength(1)
+        expect(game?.boards[engine.getState()!.localPlayerId]?.cells[WILD_CELL_INDEX]).toBeNull()
 
-        const socket = (engine as unknown as { signalingSocket: MockWebSocket }).signalingSocket
-        const joinPayload = JSON.parse(socket.sent[0] as string) as {
-            peerId: string
-            nickname: string
-            role: string
+        await engine.dispose()
+    })
+
+    it("auto-announces a breed every 5 seconds while playing", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        await connectLeaderWithJoiner(engine)
+        await startPlaying(engine)
+
+        expect(engine.getState()?.game?.announced).toHaveLength(1)
+        const firstRemaining = engine.getState()?.game?.callOrder.length ?? 0
+
+        await vi.advanceTimersByTimeAsync(ANNOUNCE_INTERVAL_MS)
+        expect(engine.getState()?.game?.announced).toHaveLength(2)
+        expect(engine.getState()?.game?.callOrder.length).toBe(firstRemaining - 1)
+
+        await vi.advanceTimersByTimeAsync(ANNOUNCE_INTERVAL_MS)
+        expect(engine.getState()?.game?.announced).toHaveLength(3)
+
+        await engine.dispose()
+    })
+
+    it("marks fake bingo claims without ending the round", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        await connectLeaderWithJoiner(engine)
+        await startPlaying(engine)
+
+        engine.send({ type: GameEngineMessageType.ClaimBingo })
+
+        const state = engine.getState()
+        expect(state?.phase).toBe(RoomPhase.Playing)
+        expect(state?.game?.fakeBingoPlayerId).toBe(state?.localPlayerId)
+        expect(state?.game?.winnerId).toBeNull()
+
+        await engine.dispose()
+    })
+
+    it("ends the round on a legitimate bingo claim", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        await startPlaying(engine)
+
+        const internals = engine as unknown as EngineInternals
+        const game = internals.state!.game!
+        const needed = coverCenterRow(game, leaderId)
+
+        internals.state = {
+            ...internals.state!,
+            game: {
+                ...game,
+                announced: needed,
+                callOrder: game.callOrder.filter(id => !needed.includes(id)),
+                fakeBingoPlayerId: null
+            }
         }
 
-        socket.emit(
-            "message",
-            JSON.stringify({
-                type: "joined",
-                peerId: joinPayload.peerId,
-                roomCode: "ABCDEF",
-                roomName: "Pup pack",
-                peers: [{ id: joinPayload.peerId, nickname: "Alpha", isLeader: true }]
-            })
-        )
+        engine.send({ type: GameEngineMessageType.ClaimBingo })
 
-        const state = await connectPromise
-        expect(state.phase).toBe(RoomPhase.Lobby)
-        expect(state.code).toBe("ABCDEF")
+        const state = engine.getState()
+        expect(state?.phase).toBe(RoomPhase.Ended)
+        expect(state?.game?.winnerId).toBe(leaderId)
+        expect(state?.game?.progress?.length).toBe(2)
 
-        socket.emit(
-            "message",
-            JSON.stringify({
-                type: "peer-joined",
-                peer: { id: "joiner-1", nickname: "Beta", isLeader: false }
-            })
-        )
+        await engine.dispose()
+    })
 
-        expect(engine.getState()?.players).toHaveLength(2)
+    it("restarts a finished round and remints TURN when relay was used", async () => {
+        vi.useFakeTimers()
 
-        engine.send({ type: GameEngineMessageType.StartGame })
-        expect(engine.getState()?.countdown).toBe(3)
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        await startPlaying(engine)
 
-        await vi.advanceTimersByTimeAsync(1000)
-        expect(engine.getState()?.countdown).toBe(2)
+        const internals = engine as unknown as EngineInternals
+        internals.sessionUsedTurn = true
 
-        await vi.advanceTimersByTimeAsync(1000)
-        expect(engine.getState()?.countdown).toBe(1)
+        const game = internals.state!.game!
+        const needed = coverCenterRow(game, leaderId)
+        internals.state = {
+            ...internals.state!,
+            game: {
+                ...game,
+                announced: needed,
+                callOrder: game.callOrder.filter(id => !needed.includes(id))
+            }
+        }
+        engine.send({ type: GameEngineMessageType.ClaimBingo })
+        expect(engine.getState()?.phase).toBe(RoomPhase.Ended)
 
-        await vi.advanceTimersByTimeAsync(1000)
-        expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+        const turnCallsBefore = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(call =>
+            String(call[0]).endsWith("/turn/credentials")
+        ).length
+
+        // Ensure a peer connection exists for ICE restart.
+        const peerConnection = new MockRTCPeerConnection()
+        internals.peers.set("joiner-1", {
+            peerId: "joiner-1",
+            connection: peerConnection,
+            channel: new MockRTCDataChannel()
+        })
+
+        engine.send({ type: GameEngineMessageType.RestartGame })
+        await vi.advanceTimersByTimeAsync(0)
+        await Promise.resolve()
+        await Promise.resolve()
+
+        const turnCallsAfter = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(call =>
+            String(call[0]).endsWith("/turn/credentials")
+        ).length
+
+        expect(turnCallsAfter).toBeGreaterThan(turnCallsBefore)
+        expect(peerConnection.setConfiguration).toHaveBeenCalled()
+        expect(peerConnection.createOffer).toHaveBeenCalledWith({ iceRestart: true })
+
+        await vi.waitFor(() => {
+            expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+        })
+        expect(engine.getState()?.game?.winnerId).toBeNull()
+        expect(engine.getState()?.game?.announced.length).toBeGreaterThanOrEqual(1)
 
         await engine.dispose()
     })
@@ -212,11 +357,11 @@ describe("GameEngineCloudflare", () => {
         })
 
         await vi.waitFor(() => {
-            const socket = (engine as unknown as { signalingSocket: MockWebSocket | null }).signalingSocket
+            const socket = (engine as unknown as EngineInternals).signalingSocket
             expect(socket?.readyState).toBe(MockWebSocket.OPEN)
         })
 
-        const socket = (engine as unknown as { signalingSocket: MockWebSocket }).signalingSocket
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
         const joinPayload = JSON.parse(socket.sent[0] as string) as { peerId: string }
 
         socket.emit(

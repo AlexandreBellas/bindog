@@ -1,7 +1,18 @@
-import type { IKeyable } from "#/utils/types/keyable"
+import type { IGameState, IPlayerProgress } from "./game"
 import type { IRoomPlayer, IRoomState } from "./room"
+import type { IKeyable } from "#/utils/types/keyable"
 
-export const dataChannelMessageTypes = ["sync", "countdown", "playing", "peer-hello"] as const
+export const dataChannelMessageTypes = [
+    "sync",
+    "countdown",
+    "playing",
+    "peer-hello",
+    "game-snapshot",
+    "breed-announced",
+    "fake-bingo",
+    "game-ended",
+    "claim-bingo"
+] as const
 
 export type IDataChannelMessageType = (typeof dataChannelMessageTypes)[number]
 
@@ -9,7 +20,12 @@ export const DataChannelMessageType = {
     Sync: "sync",
     Countdown: "countdown",
     Playing: "playing",
-    PeerHello: "peer-hello"
+    PeerHello: "peer-hello",
+    GameSnapshot: "game-snapshot",
+    BreedAnnounced: "breed-announced",
+    FakeBingo: "fake-bingo",
+    GameEnded: "game-ended",
+    ClaimBingo: "claim-bingo"
 } as const satisfies Record<IKeyable<IDataChannelMessageType>, IDataChannelMessageType>
 
 export interface ISyncMessage {
@@ -19,6 +35,7 @@ export interface ISyncMessage {
     players: IRoomPlayer[]
     phase: IRoomState["phase"]
     countdown: number | null
+    game: IGameState | null
 }
 
 export interface ICountdownMessage {
@@ -35,7 +52,47 @@ export interface IPeerHelloMessage {
     player: IRoomPlayer
 }
 
-export type IDataChannelMessage = ISyncMessage | ICountdownMessage | IPlayingMessage | IPeerHelloMessage
+export interface IGameSnapshotMessage {
+    type: typeof DataChannelMessageType.GameSnapshot
+    phase: IRoomState["phase"]
+    game: IGameState
+}
+
+export interface IBreedAnnouncedMessage {
+    type: typeof DataChannelMessageType.BreedAnnounced
+    breedId: string
+    announced: string[]
+    callOrder: string[]
+    announceStartedAt: number
+}
+
+export interface IFakeBingoMessage {
+    type: typeof DataChannelMessageType.FakeBingo
+    playerId: string
+}
+
+export interface IGameEndedMessage {
+    type: typeof DataChannelMessageType.GameEnded
+    winnerId: string
+    progress: IPlayerProgress[]
+    game: IGameState
+}
+
+export interface IClaimBingoDataChannelMessage {
+    type: typeof DataChannelMessageType.ClaimBingo
+    playerId: string
+}
+
+export type IDataChannelMessage =
+    | ISyncMessage
+    | ICountdownMessage
+    | IPlayingMessage
+    | IPeerHelloMessage
+    | IGameSnapshotMessage
+    | IBreedAnnouncedMessage
+    | IFakeBingoMessage
+    | IGameEndedMessage
+    | IClaimBingoDataChannelMessage
 
 export const signalingClientMessageTypes = ["join", "signal", "leave"] as const
 
