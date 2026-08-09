@@ -51,7 +51,7 @@ export default function BingoBoard({ board, marks, onToggle }: Readonly<IBingoBo
                                 <img
                                     src={breed?.imageSrc ?? "/breeds/placeholder.svg"}
                                     alt=""
-                                    className="size-[70%] object-contain"
+                                    className="size-[95%] object-contain rounded-md"
                                     draggable={false}
                                 />
                                 <span className="sr-only">{breed?.name}</span>
