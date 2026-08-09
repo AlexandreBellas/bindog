@@ -14,7 +14,6 @@
   "framework": "react",
   "chosenAddOns": [
     "eslint",
-    "nitro",
     "shadcn",
     "posthog",
     "tanstack-query",

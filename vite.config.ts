@@ -7,7 +7,6 @@ import { devtools } from "@tanstack/devtools-vite"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import viteReact, { reactCompilerPreset } from "@vitejs/plugin-react"
 import { playwright } from "@vitest/browser-playwright"
-import { nitro } from "nitro/vite"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { defineConfig } from "vite"
@@ -19,6 +18,10 @@ const config = defineConfig({
     resolve: {
         tsconfigPaths: true
     },
+    // Bind preview to loopback so SPA prerender can reach the local server during `vite build`
+    preview: {
+        host: "127.0.0.1"
+    },
     plugins: [
         devtools(),
         paraglideVitePlugin({
@@ -26,13 +29,16 @@ const config = defineConfig({
             outdir: "./src/paraglide",
             strategy: ["localStorage", "baseLocale"]
         }),
-        nitro({
-            rollupConfig: {
-                external: [/^@sentry\//]
+        tailwindcss(),
+        tanstackStart({
+            spa: {
+                enabled: true,
+                prerender: {
+                    // Classic static-host entry so `/` works without rewrite tricks
+                    outputPath: "/index.html"
+                }
             }
         }),
-        tailwindcss(),
-        tanstackStart(),
         viteReact(),
         babel({
             presets: [reactCompilerPreset()]

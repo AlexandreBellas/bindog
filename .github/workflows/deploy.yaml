@@ -32,5 +32,5 @@ jobs:
           server: ${{ secrets.FTP_SERVER }}
           user: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          local_dir: "./dist"
+          local_dir: "./dist/client"
           ssl_verify_certificate: "false"
