@@ -375,16 +375,13 @@ function getAttachment(socket: WebSocket): IPeerAttachment | null {
 }
 
 /**
- * JSON response helper.
+ * JSON response helper (CORS is applied by the Worker entrypoint).
  */
 function json(data: unknown, status = 200): Response {
     return new Response(JSON.stringify(data), {
         status,
         headers: {
-            "content-type": "application/json",
-            "access-control-allow-origin": "*",
-            "access-control-allow-methods": "GET, POST, OPTIONS",
-            "access-control-allow-headers": "content-type"
+            "content-type": "application/json"
         }
     })
 }

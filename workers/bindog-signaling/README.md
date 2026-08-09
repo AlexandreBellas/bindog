@@ -11,6 +11,24 @@ Cloudflare Worker that mints short-lived TURN credentials and relays WebRTC sign
 | `GET`  | `/rooms/:code`      | Existence check                                       |
 | `WS`   | `/rooms/:code`      | Signaling relay (join / offer / answer / ice / leave) |
 
+## Guardrails
+
+| Control | Behavior |
+| ------- | -------- |
+| CORS / Origin | Only origins listed in `ALLOWED_ORIGINS` may call the Worker. Missing or unknown `Origin` → `403`. |
+| TURN TTL | Credentials expire after **5 minutes** (`300s`). |
+| Rate limits | `TURN_RATE_LIMITER`: 10 mint calls / IP / 60s. `ROOM_RATE_LIMITER`: 20 create/get/ws ops / IP / 60s (separate keys per action class). Limits are per Cloudflare colo. |
+| TURN tagging | Each mint includes a `customIdentifier` derived from a hash of the client IP (for Realtime analytics / abuse monitoring). |
+
+`ALLOWED_ORIGINS` is environment-scoped:
+
+| Mode | Source | Value |
+| ---- | ------ | ----- |
+| Production (`wrangler deploy`) | [`wrangler.toml`](wrangler.toml) `[vars]` | `https://bindog.alebatistella.com` only |
+| Development (`wrangler dev`) | local `.env` (from [`.env.example`](.env.example)) | `http://localhost:3000` + `http://127.0.0.1:3000` only |
+
+Also set a [budget alert](https://developers.cloudflare.com/billing/manage/budget-alerts/) in the Cloudflare dashboard — alerts notify, they do not hard-cap spend.
+
 ## One-time Cloudflare setup
 
 1. Create / log into a [Cloudflare account](https://dash.cloudflare.com/).
@@ -32,6 +50,8 @@ npx wrangler secret put TURN_KEY_ID
 npx wrangler secret put TURN_API_TOKEN
 ```
 
+5. Confirm production `[vars].ALLOWED_ORIGINS` is only your live site (no localhost).
+
 ## Local development
 
 `wrangler secret put` only applies to the **deployed** Worker. For local `wrangler dev`, copy the example vars file and fill in the same TURN values:
@@ -39,10 +59,18 @@ npx wrangler secret put TURN_API_TOKEN
 ```bash
 cp .env.example .env
 # edit .env → TURN_KEY_ID + TURN_API_TOKEN
+# (.env already sets ALLOWED_ORIGINS to localhost-only)
 npm run dev
 ```
 
-Without `.env`, `/turn/credentials` still succeeds with public STUN only (fine for same-LAN testing; use real TURN for cross-network peers).
+Without TURN secrets in `.env`, `/turn/credentials` still succeeds with public STUN only (fine for same-LAN testing; use real TURN for cross-network peers). Without `.env` at all, `wrangler dev` falls back to the production `ALLOWED_ORIGINS` from `wrangler.toml`, so local browser calls from `localhost` will get `403`.
+
+Manual `curl` calls must send an allowlisted `Origin` header, for example:
+
+```bash
+curl -X POST http://127.0.0.1:8787/turn/credentials \
+  -H "Origin: http://localhost:3000"
+```
 
 Point the app at the local Worker:
 
