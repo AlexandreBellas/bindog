@@ -51,7 +51,7 @@ const config = defineConfig({
                 test: {
                     name: "unit",
                     environment: "jsdom",
-                    include: ["src/**/*.test.{ts,tsx}"],
+                    include: ["src/**/*.test.{ts,tsx}", "workers/bindog-signaling/src/**/*.test.ts"],
                     setupFiles: ["src/tests/setup.ts"]
                 }
             },

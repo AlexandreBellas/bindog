@@ -50,9 +50,13 @@ export function handleOptions(allowedOrigin: string): Response {
 
 /**
  * Copies a response and attaches allowlisted CORS headers when applicable.
- * Preserves WebSocket upgrade responses.
+ * Callers must not pass WebSocket upgrade responses — those must be returned as-is.
  */
 export function applyCorsHeaders(response: Response, allowedOrigin: string | null): Response {
+    if (response.webSocket) {
+        return response
+    }
+
     const headers = new Headers(response.headers)
     headers.delete("access-control-allow-origin")
     headers.delete("access-control-allow-methods")
@@ -69,7 +73,6 @@ export function applyCorsHeaders(response: Response, allowedOrigin: string | nul
     return new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
-        headers,
-        webSocket: response.webSocket
+        headers
     })
 }

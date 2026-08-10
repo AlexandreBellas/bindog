@@ -203,6 +203,14 @@ export default {
         const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS)
         const allowedOrigin = matchAllowedOrigin(request, allowedOrigins)
         const response = await handleRequest(request, env)
+
+        // WebSocket upgrade responses (status 101) must be returned untouched.
+        // Rewriting them to attach CORS headers is unsupported in workerd and can
+        // break the upgraded connection — especially across longer network paths.
+        if (response.webSocket) {
+            return response
+        }
+
         return applyCorsHeaders(response, allowedOrigin)
     }
 }
