@@ -1,4 +1,5 @@
 import { BREED_BY_ID } from "#/constants/breeds"
+import { cn } from "#/lib/utils.ts"
 import { m } from "#/paraglide/messages"
 import { useEffect, useState } from "react"
 
@@ -6,12 +7,14 @@ interface IBreedAnnouncementProps {
     breedId: string | null
     announceStartedAt: number | null
     announceIntervalMs: number
+    className?: string
 }
 
 export default function BreedAnnouncement({
     breedId,
     announceStartedAt,
-    announceIntervalMs
+    announceIntervalMs,
+    className
 }: Readonly<IBreedAnnouncementProps>) {
     // #region Custom hooks
     const remainingMs = useAnnounceRemainingMs(announceStartedAt, announceIntervalMs)
@@ -21,24 +24,29 @@ export default function BreedAnnouncement({
     // #endregion
 
     return (
-        <section className="flex w-full items-center gap-3 rounded-2xl border border-(--chip-line) bg-(--surface) px-3 py-3 sm:gap-4 sm:px-5 sm:py-4">
-            <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-(--chip-bg) sm:size-20 sm:rounded-2xl">
+        <section
+            className={cn(
+                "flex w-full min-h-0 items-center gap-2 overflow-hidden rounded-xl border border-(--chip-line) bg-(--surface) px-2 py-1.5 sm:gap-4 sm:rounded-2xl sm:px-5 sm:py-4",
+                className
+            )}
+        >
+            <div className="flex aspect-square h-full max-h-14 min-h-0 w-auto shrink-0 items-center justify-center overflow-hidden rounded-lg bg-(--chip-bg) sm:size-20 sm:max-h-none sm:rounded-2xl">
                 {breed ? (
-                    <img src={breed.imageSrc} alt="" className="size-full object-contain p-1" draggable={false} />
+                    <img src={breed.imageSrc} alt="" className="size-full min-h-0 object-contain p-0.5 sm:p-1" draggable={false} />
                 ) : (
-                    <span className="text-2xl text-(--bark-soft)">…</span>
+                    <span className="text-lg text-(--bark-soft) sm:text-2xl">…</span>
                 )}
             </div>
 
-            <div className="min-w-0 flex-1 space-y-2 text-left">
-                <p className="m-0 text-xs font-semibold uppercase tracking-[0.16em] text-(--kicker)">
+            <div className="min-h-0 min-w-0 flex-1 space-y-1 text-left sm:space-y-2">
+                <p className="m-0 text-[0.625rem] font-semibold uppercase tracking-[0.16em] text-(--kicker) sm:text-xs">
                     {m.game_announcement_label()}
                 </p>
-                <h2 className="display-title m-0 truncate text-xl font-extrabold text-(--bark) sm:text-2xl">
+                <h2 className="display-title m-0 truncate text-sm font-extrabold leading-tight text-(--bark) sm:text-2xl sm:leading-normal">
                     {breed?.name ?? "—"}
                 </h2>
                 <div
-                    className="h-2 overflow-hidden rounded-full bg-(--chip-bg)"
+                    className="h-1.5 overflow-hidden rounded-full bg-(--chip-bg) sm:h-2"
                     role="progressbar"
                     aria-valuemin={0}
                     aria-valuemax={Math.round(announceIntervalMs / 1000)}
