@@ -11,9 +11,9 @@ export default function Header() {
                 <Link
                     to="/"
                     aria-label={m.home_aria()}
-                    className="group inline-flex items-center gap-2 text-(--bark) no-underline"
+                    className="group inline-flex flex-col items-center gap-0.5 text-(--bark) no-underline sm:flex-row sm:gap-2"
                 >
-                    <BindogMark className="size-9 shrink-0 transition group-hover:rotate-[-6deg] sm:size-10" />
+                    <BindogMark className="size-9 shrink-0 transition group-hover:-rotate-6 sm:size-10" />
                     <span className="display-title text-xl font-extrabold tracking-tight sm:text-2xl">
                         {m.app_name()}
                     </span>
