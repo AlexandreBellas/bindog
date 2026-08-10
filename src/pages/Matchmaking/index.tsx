@@ -79,8 +79,8 @@ export default function Matchmaking() {
     const canStart = isLeader && room.phase === RoomPhase.Lobby && room.players.length >= 2
 
     return (
-        <main className="page-wrap relative flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-8 pt-10 sm:pt-14">
-            <div className="rise-in mx-auto flex w-full max-w-lg flex-col gap-6">
+        <main className="relative flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
+            <div className="page-wrap rise-in mx-auto flex w-full max-w-lg flex-col gap-6 px-4 pb-8 pt-10 sm:pt-14">
                 <header className="space-y-2 text-center">
                     <p className="island-kicker m-0">{m.lobby_kicker()}</p>
                     <h1 className="display-title m-0 text-4xl font-extrabold text-(--bark) sm:text-5xl">{room.name}</h1>

@@ -7,7 +7,7 @@ interface ICountdownOverlayProps {
 export default function CountdownOverlay({ value }: Readonly<ICountdownOverlayProps>) {
     return (
         <div
-            className="absolute inset-0 z-20 flex items-center justify-center bg-(--bark)/55 backdrop-blur-sm"
+            className="fixed inset-0 z-20 flex items-center justify-center bg-(--bark)/55 backdrop-blur-sm"
             role="status"
             aria-live="assertive"
             aria-label={m.countdown_aria({ value: String(value) })}
