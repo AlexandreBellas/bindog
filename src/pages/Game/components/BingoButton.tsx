@@ -18,11 +18,9 @@ export default function BingoButton({ ready, onClaim }: Readonly<IBingoButtonPro
             >
                 {m.game_bingo_button()}
             </Button>
-            {!ready ? (
-                <p className="m-0 text-center text-xs font-semibold text-(--bark-soft) sm:text-sm">
-                    {m.game_bingo_disabled_hint()}
-                </p>
-            ) : null}
+            <p className="m-0 text-center text-xs font-semibold text-(--bark-soft) sm:text-sm">
+                {m.game_bingo_disabled_hint()}
+            </p>
         </div>
     )
 }
