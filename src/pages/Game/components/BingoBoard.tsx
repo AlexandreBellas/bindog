@@ -3,6 +3,7 @@ import { Button } from "#/components/ui/button"
 import { BREED_BY_ID, WILD_CELL_INDEX } from "#/constants/breeds"
 import { cn } from "#/lib/utils.ts"
 import { m } from "#/paraglide/messages"
+import { getBreedName } from "#/utils/get-breed-name"
 
 interface IBingoBoardProps {
     board: IBingoBoard
@@ -29,7 +30,7 @@ export default function BingoBoard({ board, marks, onToggle }: Readonly<IBingoBo
                         variant="outline"
                         role="gridcell"
                         aria-pressed={marked}
-                        aria-label={isWild ? m.game_wild_aria() : (breed?.name ?? "Breed")}
+                        aria-label={isWild ? m.game_wild_aria() : breed ? getBreedName(breed.id) : "Breed"}
                         disabled={isWild}
                         onClick={() => {
                             if (!isWild) onToggle(index)
@@ -54,7 +55,7 @@ export default function BingoBoard({ board, marks, onToggle }: Readonly<IBingoBo
                                     className="min-h-0 min-w-0 max-h-full max-w-full size-[95%] object-contain rounded-md"
                                     draggable={false}
                                 />
-                                <span className="sr-only">{breed?.name}</span>
+                                <span className="sr-only">{breed ? getBreedName(breed.id) : null}</span>
                             </>
                         )}
                         {marked && !isWild ? (

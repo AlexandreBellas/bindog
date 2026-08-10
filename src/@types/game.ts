@@ -7,7 +7,6 @@ export interface IBingoBoard {
 
 export interface IBreed {
     id: string
-    name: string
     imageSrc: string
 }
 

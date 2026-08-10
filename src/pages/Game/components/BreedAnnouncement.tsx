@@ -1,6 +1,7 @@
 import { BREED_BY_ID } from "#/constants/breeds"
 import { cn } from "#/lib/utils.ts"
 import { m } from "#/paraglide/messages"
+import { getBreedName } from "#/utils/get-breed-name"
 import { useEffect, useState } from "react"
 
 interface IBreedAnnouncementProps {
@@ -43,7 +44,7 @@ export default function BreedAnnouncement({
                     {m.game_announcement_label()}
                 </p>
                 <h2 className="display-title m-0 truncate text-sm font-extrabold leading-tight text-(--bark) sm:overflow-visible sm:text-2xl sm:leading-normal sm:whitespace-normal sm:text-clip">
-                    {breed?.name ?? "—"}
+                    {breed ? getBreedName(breed.id) : "—"}
                 </h2>
                 <div
                     className="h-1.5 overflow-hidden rounded-full bg-(--chip-bg) sm:h-2"
