@@ -9,71 +9,77 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as MatchmakingRouteImport } from './routes/matchmaking'
 import { Route as GameRouteImport } from './routes/game'
-import { Route as MarketingRouteImport } from './routes/_marketing'
-import { Route as MarketingIndexRouteImport } from './routes/_marketing/index'
+import { Route as PreloadBreedsRouteImport } from './routes/_preloadBreeds'
+import { Route as PreloadBreedsMatchmakingRouteImport } from './routes/_preloadBreeds/matchmaking'
+import { Route as PreloadBreedsMarketingRouteImport } from './routes/_preloadBreeds/_marketing'
+import { Route as PreloadBreedsMarketingIndexRouteImport } from './routes/_preloadBreeds/_marketing/index'
 
-const MatchmakingRoute = MatchmakingRouteImport.update({
-  id: '/matchmaking',
-  path: '/matchmaking',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const GameRoute = GameRouteImport.update({
   id: '/game',
   path: '/game',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MarketingRoute = MarketingRouteImport.update({
-  id: '/_marketing',
+const PreloadBreedsRoute = PreloadBreedsRouteImport.update({
+  id: '/_preloadBreeds',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MarketingIndexRoute = MarketingIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => MarketingRoute,
+const PreloadBreedsMatchmakingRoute =
+  PreloadBreedsMatchmakingRouteImport.update({
+    id: '/matchmaking',
+    path: '/matchmaking',
+    getParentRoute: () => PreloadBreedsRoute,
+  } as any)
+const PreloadBreedsMarketingRoute = PreloadBreedsMarketingRouteImport.update({
+  id: '/_marketing',
+  getParentRoute: () => PreloadBreedsRoute,
 } as any)
+const PreloadBreedsMarketingIndexRoute =
+  PreloadBreedsMarketingIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => PreloadBreedsMarketingRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof MarketingIndexRoute
+  '/': typeof PreloadBreedsMarketingIndexRoute
   '/game': typeof GameRoute
-  '/matchmaking': typeof MatchmakingRoute
+  '/matchmaking': typeof PreloadBreedsMatchmakingRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof PreloadBreedsMarketingIndexRoute
   '/game': typeof GameRoute
-  '/matchmaking': typeof MatchmakingRoute
-  '/': typeof MarketingIndexRoute
+  '/matchmaking': typeof PreloadBreedsMatchmakingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/_marketing': typeof MarketingRouteWithChildren
+  '/_preloadBreeds': typeof PreloadBreedsRouteWithChildren
   '/game': typeof GameRoute
-  '/matchmaking': typeof MatchmakingRoute
-  '/_marketing/': typeof MarketingIndexRoute
+  '/_preloadBreeds/_marketing': typeof PreloadBreedsMarketingRouteWithChildren
+  '/_preloadBreeds/matchmaking': typeof PreloadBreedsMatchmakingRoute
+  '/_preloadBreeds/_marketing/': typeof PreloadBreedsMarketingIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths: '/' | '/game' | '/matchmaking'
   fileRoutesByTo: FileRoutesByTo
-  to: '/game' | '/matchmaking' | '/'
-  id: '__root__' | '/_marketing' | '/game' | '/matchmaking' | '/_marketing/'
+  to: '/' | '/game' | '/matchmaking'
+  id:
+    | '__root__'
+    | '/_preloadBreeds'
+    | '/game'
+    | '/_preloadBreeds/_marketing'
+    | '/_preloadBreeds/matchmaking'
+    | '/_preloadBreeds/_marketing/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  MarketingRoute: typeof MarketingRouteWithChildren
+  PreloadBreedsRoute: typeof PreloadBreedsRouteWithChildren
   GameRoute: typeof GameRoute
-  MatchmakingRoute: typeof MatchmakingRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/matchmaking': {
-      id: '/matchmaking'
-      path: '/matchmaking'
-      fullPath: '/matchmaking'
-      preLoaderRoute: typeof MatchmakingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/game': {
       id: '/game'
       path: '/game'
@@ -81,39 +87,68 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GameRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_marketing': {
-      id: '/_marketing'
+    '/_preloadBreeds': {
+      id: '/_preloadBreeds'
       path: ''
       fullPath: '/'
-      preLoaderRoute: typeof MarketingRouteImport
+      preLoaderRoute: typeof PreloadBreedsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_marketing/': {
-      id: '/_marketing/'
+    '/_preloadBreeds/matchmaking': {
+      id: '/_preloadBreeds/matchmaking'
+      path: '/matchmaking'
+      fullPath: '/matchmaking'
+      preLoaderRoute: typeof PreloadBreedsMatchmakingRouteImport
+      parentRoute: typeof PreloadBreedsRoute
+    }
+    '/_preloadBreeds/_marketing': {
+      id: '/_preloadBreeds/_marketing'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof PreloadBreedsMarketingRouteImport
+      parentRoute: typeof PreloadBreedsRoute
+    }
+    '/_preloadBreeds/_marketing/': {
+      id: '/_preloadBreeds/_marketing/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof MarketingIndexRouteImport
-      parentRoute: typeof MarketingRoute
+      preLoaderRoute: typeof PreloadBreedsMarketingIndexRouteImport
+      parentRoute: typeof PreloadBreedsMarketingRoute
     }
   }
 }
 
-interface MarketingRouteChildren {
-  MarketingIndexRoute: typeof MarketingIndexRoute
+interface PreloadBreedsMarketingRouteChildren {
+  PreloadBreedsMarketingIndexRoute: typeof PreloadBreedsMarketingIndexRoute
 }
 
-const MarketingRouteChildren: MarketingRouteChildren = {
-  MarketingIndexRoute: MarketingIndexRoute,
+const PreloadBreedsMarketingRouteChildren: PreloadBreedsMarketingRouteChildren =
+  {
+    PreloadBreedsMarketingIndexRoute: PreloadBreedsMarketingIndexRoute,
+  }
+
+const PreloadBreedsMarketingRouteWithChildren =
+  PreloadBreedsMarketingRoute._addFileChildren(
+    PreloadBreedsMarketingRouteChildren,
+  )
+
+interface PreloadBreedsRouteChildren {
+  PreloadBreedsMarketingRoute: typeof PreloadBreedsMarketingRouteWithChildren
+  PreloadBreedsMatchmakingRoute: typeof PreloadBreedsMatchmakingRoute
 }
 
-const MarketingRouteWithChildren = MarketingRoute._addFileChildren(
-  MarketingRouteChildren,
+const PreloadBreedsRouteChildren: PreloadBreedsRouteChildren = {
+  PreloadBreedsMarketingRoute: PreloadBreedsMarketingRouteWithChildren,
+  PreloadBreedsMatchmakingRoute: PreloadBreedsMatchmakingRoute,
+}
+
+const PreloadBreedsRouteWithChildren = PreloadBreedsRoute._addFileChildren(
+  PreloadBreedsRouteChildren,
 )
 
 const rootRouteChildren: RootRouteChildren = {
-  MarketingRoute: MarketingRouteWithChildren,
+  PreloadBreedsRoute: PreloadBreedsRouteWithChildren,
   GameRoute: GameRoute,
-  MatchmakingRoute: MatchmakingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

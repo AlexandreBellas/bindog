@@ -3,7 +3,7 @@ import { m } from "#/paraglide/messages"
 import { seo } from "#/utils/seo"
 import { createFileRoute } from "@tanstack/react-router"
 
-export const Route = createFileRoute("/matchmaking")({
+export const Route = createFileRoute("/_preloadBreeds/matchmaking")({
     component: Matchmaking,
     head: () => {
         const title = `${m.app_name()} | ${m.matchmaking_page_title()}`

@@ -1,7 +1,7 @@
 import Footer from "#/components/base/Footer"
 import { Outlet, createFileRoute } from "@tanstack/react-router"
 
-export const Route = createFileRoute("/_marketing")({
+export const Route = createFileRoute("/_preloadBreeds/_marketing")({
     component: MarketingLayout
 })
 

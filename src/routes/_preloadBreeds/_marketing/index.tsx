@@ -3,7 +3,7 @@ import { m } from "#/paraglide/messages"
 import { seo } from "#/utils/seo"
 import { createFileRoute } from "@tanstack/react-router"
 
-export const Route = createFileRoute("/_marketing/")({
+export const Route = createFileRoute("/_preloadBreeds/_marketing/")({
     component: Landing,
     head: () => {
         const title = `${m.app_name()} | ${m.home_page_title()}`
