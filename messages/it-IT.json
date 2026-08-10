@@ -65,7 +65,7 @@
     "home_aria": "Vai alla home",
     "home_page_title": "Home",
     "locale_en_US": "English",
-    "locale_pt_BR": "Brasil",
+    "locale_pt_BR": "Português",
     "locale_fr_FR": "Français",
     "locale_it_IT": "Italiano",
     "locale_de_DE": "Deutsch",
@@ -83,5 +83,7 @@
     "game_restart": "Gioca ancora",
     "game_waiting_restart": "In attesa che il leader riparta…",
     "game_results_title": "Risultati del round",
-    "game_board_aria": "La tua cartella bingo"
+    "game_board_aria": "La tua cartella bingo",
+    "game_players_left_title": "Giocatori usciti",
+    "game_players_left_description": "Tutti gli altri giocatori hanno lasciato la stanza, reindirizzamento alla home."
 }

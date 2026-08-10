@@ -95,7 +95,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 phase: RoomPhase.Lobby,
                 countdown: null,
                 localPlayerId: this.localPeerId,
-                game: null
+                game: null,
+                abandoned: false
             }
             this.emit()
 
@@ -387,6 +388,13 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
 
         if (!this.isLeader) {
             this.clearAnnounceTimer()
+        }
+
+        if (this.shouldAbandonGame(next)) {
+            this.clearCountdownTimer()
+            this.clearAnnounceTimer()
+            this.setState(this.applyAbandoned(next))
+            return
         }
 
         this.setState(next)
@@ -983,6 +991,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 ...latest,
                 phase: RoomPhase.Playing,
                 countdown: null,
+                abandoned: false,
                 game
             })
             this.broadcastGameSnapshot()

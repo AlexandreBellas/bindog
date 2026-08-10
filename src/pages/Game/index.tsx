@@ -12,6 +12,7 @@ import BingoButton from "./components/BingoButton"
 import BreedAnnouncement from "./components/BreedAnnouncement"
 import FakeBingoBanner from "./components/FakeBingoBanner"
 import GameResults from "./components/GameResults"
+import PlayersLeftAlert from "./components/PlayersLeftAlert"
 
 export default function Game() {
     // #region Params
@@ -55,12 +56,15 @@ export default function Game() {
     }, [])
     /**
      * Guard: playing requires an active gateway session.
+     * Abandoned rooms stay mounted so the home redirect alert can show.
      */
     useEffect(() => {
         if (!room) {
             void navigate({ to: "/" })
             return
         }
+
+        if (room.abandoned) return
 
         if (room.phase === RoomPhase.Lobby || room.phase === RoomPhase.Countdown) {
             void navigate({ to: "/matchmaking" })
@@ -105,7 +109,7 @@ export default function Game() {
                     </h1>
                 </header>
 
-                <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] sm:items-start sm:gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+                <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden sm:grid sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] sm:items-stretch sm:gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
                     <div className="flex shrink-0 flex-col gap-3 sm:sticky sm:top-0">
                         <BreedAnnouncement
                             breedId={game?.currentBreedId ?? null}
@@ -115,7 +119,7 @@ export default function Game() {
                         <FakeBingoBanner playerName={fakePlayer?.nickname ?? null} />
                     </div>
 
-                    <div className="flex min-w-0 flex-col gap-4">
+                    <div className="@container-[size] flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
                         {board ? (
                             <BingoBoard board={board} marks={marks} onToggle={handleToggleMark} />
                         ) : (
@@ -126,7 +130,7 @@ export default function Game() {
                     </div>
                 </div>
 
-                <div className="sticky bottom-0 z-10 flex shrink-0 flex-col gap-3 border-t border-(--chip-line)/60 bg-(--foam)/90 pt-3 backdrop-blur-sm sm:static sm:border-0 sm:bg-transparent sm:pt-0 sm:backdrop-blur-none">
+                <div className="flex shrink-0 flex-col gap-3">
                     {room.phase === RoomPhase.Playing ? (
                         <BingoButton ready={bingoReady} onClaim={handleClaimBingo} />
                     ) : null}
@@ -138,7 +142,7 @@ export default function Game() {
                 </div>
             </div>
 
-            {room.phase === RoomPhase.Ended && game?.progress && winner ? (
+            {room.phase === RoomPhase.Ended && !room.abandoned && game?.progress && winner ? (
                 <GameResults
                     winnerName={winner.nickname}
                     progress={game.progress}
@@ -146,6 +150,8 @@ export default function Game() {
                     onRestart={handleRestart}
                 />
             ) : null}
+
+            <PlayersLeftAlert open={room.abandoned} onGoHome={handleLeave} />
         </main>
     )
 }

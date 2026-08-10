@@ -35,6 +35,8 @@ export interface IRoomState {
     countdown: number | null
     localPlayerId: string
     game: IGameState | null
+    /** True when the round was cut short because every other player left. */
+    abandoned: boolean
 }
 
 export interface IConnectAsLeader {

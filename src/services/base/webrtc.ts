@@ -98,6 +98,26 @@ export default abstract class BaseWebRtcService {
     }
 
     /**
+     * Returns whether a peer leaving should end the round for the survivors.
+     */
+    protected shouldAbandonGame(state: IRoomState): boolean {
+        if (state.players.length >= 2) return false
+        return state.phase === RoomPhase.Playing || state.phase === RoomPhase.Countdown
+    }
+
+    /**
+     * Ends the round because every other player left the room.
+     */
+    protected applyAbandoned(state: IRoomState): IRoomState {
+        return {
+            ...state,
+            phase: RoomPhase.Ended,
+            countdown: null,
+            abandoned: true
+        }
+    }
+
+    /**
      * Reassigns the leader crown after a leadership transfer.
      */
     protected applyLeader(state: IRoomState, newLeaderId: string): IRoomState {

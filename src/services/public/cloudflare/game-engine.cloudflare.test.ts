@@ -614,4 +614,78 @@ describe("GameEngineCloudflare", () => {
 
         await engine.dispose()
     })
+
+    it("abandons a playing round when the last opponent leaves", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        await startPlaying(engine)
+
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "peer-left",
+                peerId: "joiner-1",
+                newLeaderId: null
+            })
+        )
+
+        const state = engine.getState()
+        expect(state?.players.map(player => player.id)).toEqual([leaderId])
+        expect(state?.phase).toBe(RoomPhase.Ended)
+        expect(state?.abandoned).toBe(true)
+
+        await engine.dispose()
+    })
+
+    it("does not abandon the lobby when a peer leaves and one player remains", async () => {
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "peer-left",
+                peerId: "joiner-1",
+                newLeaderId: null
+            })
+        )
+
+        const state = engine.getState()
+        expect(state?.players.map(player => player.id)).toEqual([leaderId])
+        expect(state?.phase).toBe(RoomPhase.Lobby)
+        expect(state?.abandoned).toBe(false)
+
+        await engine.dispose()
+    })
+
+    it("abandons during countdown when the last opponent leaves", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        engine.send({ type: GameEngineMessageType.StartGame })
+        expect(engine.getState()?.phase).toBe(RoomPhase.Countdown)
+
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "peer-left",
+                peerId: "joiner-1",
+                newLeaderId: null
+            })
+        )
+
+        const state = engine.getState()
+        expect(state?.players.map(player => player.id)).toEqual([leaderId])
+        expect(state?.phase).toBe(RoomPhase.Ended)
+        expect(state?.abandoned).toBe(true)
+        expect(state?.countdown).toBeNull()
+
+        await engine.dispose()
+    })
 })

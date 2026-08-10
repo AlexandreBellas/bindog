@@ -31,6 +31,14 @@ class TestableWebRtcService extends BaseWebRtcService {
         return super.removePlayer(...args)
     }
 
+    public shouldAbandonGame(...args: Parameters<BaseWebRtcService["shouldAbandonGame"]>) {
+        return super.shouldAbandonGame(...args)
+    }
+
+    public applyAbandoned(...args: Parameters<BaseWebRtcService["applyAbandoned"]>) {
+        return super.applyAbandoned(...args)
+    }
+
     public applyLeader(...args: Parameters<BaseWebRtcService["applyLeader"]>) {
         return super.applyLeader(...args)
     }
@@ -72,6 +80,7 @@ function makeState(overrides: Partial<IRoomState> = {}): IRoomState {
         countdown: null,
         localPlayerId: "leader-1",
         game: null,
+        abandoned: false,
         ...overrides
     }
 }
@@ -142,6 +151,47 @@ describe("removePlayer", () => {
     it("removes a player by id", () => {
         const next = service.removePlayer(makeState(), "joiner-1")
         expect(next.players.map(player => player.id)).toEqual(["leader-1"])
+    })
+})
+
+describe("shouldAbandonGame", () => {
+    it("is true when alone during playing or countdown", () => {
+        const alone = makeState({
+            players: [{ id: "leader-1", nickname: "Alpha", isLeader: true }],
+            phase: RoomPhase.Playing
+        })
+        expect(service.shouldAbandonGame(alone)).toBe(true)
+        expect(service.shouldAbandonGame({ ...alone, phase: RoomPhase.Countdown, countdown: 2 })).toBe(true)
+    })
+
+    it("is false in lobby or when two or more players remain", () => {
+        expect(service.shouldAbandonGame(makeState({ phase: RoomPhase.Playing }))).toBe(false)
+        expect(
+            service.shouldAbandonGame(
+                makeState({
+                    players: [{ id: "leader-1", nickname: "Alpha", isLeader: true }],
+                    phase: RoomPhase.Lobby
+                })
+            )
+        ).toBe(false)
+    })
+})
+
+describe("applyAbandoned", () => {
+    it("ends the round and marks the room abandoned", () => {
+        expect(
+            service.applyAbandoned(
+                makeState({
+                    phase: RoomPhase.Playing,
+                    countdown: null,
+                    players: [{ id: "leader-1", nickname: "Alpha", isLeader: true }]
+                })
+            )
+        ).toMatchObject({
+            phase: RoomPhase.Ended,
+            countdown: null,
+            abandoned: true
+        })
     })
 })
 
