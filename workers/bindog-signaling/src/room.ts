@@ -28,6 +28,8 @@ interface IClientMessage {
  */
 export class RoomDurableObject {
     private readonly ctx: DurableObjectState
+    /** Serializes joins so concurrent finishJoin calls cannot both observe an empty roster. */
+    private joinChain: Promise<void> = Promise.resolve()
 
     public constructor(ctx: DurableObjectState, _env: unknown) {
         this.ctx = ctx
@@ -69,7 +71,9 @@ export class RoomDurableObject {
         }
 
         if (message.type === "join") {
-            this.handleJoin(socket, message as unknown as IJoinMessage)
+            // Must await: hibernation may continue as soon as this handler settles.
+            // Fire-and-forget join races let two peers each see an empty roster.
+            await this.handleJoin(socket, message as unknown as IJoinMessage)
             return
         }
 
@@ -175,7 +179,7 @@ export class RoomDurableObject {
     /**
      * Handles a join message and notifies existing peers.
      */
-    private handleJoin(socket: WebSocket, join: IJoinMessage): void {
+    private async handleJoin(socket: WebSocket, join: IJoinMessage): Promise<void> {
         if (getAttachment(socket)) {
             send(socket, { type: "error", message: "Already joined" })
             return
@@ -186,7 +190,19 @@ export class RoomDurableObject {
             return
         }
 
-        void this.finishJoin(socket, join)
+        await this.enqueueJoin(socket, join)
+    }
+
+    /**
+     * Runs finishJoin strictly one-at-a-time for this room.
+     */
+    private enqueueJoin(socket: WebSocket, join: IJoinMessage): Promise<void> {
+        const run = this.joinChain.then(() => this.finishJoin(socket, join))
+        this.joinChain = run.then(
+            () => undefined,
+            () => undefined
+        )
+        return run
     }
 
     /**

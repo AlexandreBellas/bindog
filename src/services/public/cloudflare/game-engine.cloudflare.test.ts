@@ -72,6 +72,12 @@ class MockRTCPeerConnection {
     public connectionState: RTCPeerConnectionState = "new"
     public setConfiguration = vi.fn()
     public createOffer = vi.fn(async (): Promise<RTCSessionDescriptionInit> => ({ type: "offer", sdp: "v=0" }))
+    public setRemoteDescription = vi.fn(async (): Promise<void> => {
+        // no-op
+    })
+    public addIceCandidate = vi.fn(async (): Promise<void> => {
+        // no-op
+    })
     private listeners = new Map<string, Set<() => void>>()
 
     public createDataChannel(): MockRTCDataChannel {
@@ -83,14 +89,6 @@ class MockRTCPeerConnection {
     }
 
     public async setLocalDescription(): Promise<void> {
-        // no-op
-    }
-
-    public async setRemoteDescription(): Promise<void> {
-        // no-op
-    }
-
-    public async addIceCandidate(): Promise<void> {
         // no-op
     }
 
@@ -109,7 +107,18 @@ type EngineInternals = {
     signalingSocket: MockWebSocket | null
     sessionUsedTurn: boolean
     state: IRoomState | null
-    peers: Map<string, { peerId: string; connection: MockRTCPeerConnection; channel: MockRTCDataChannel | null }>
+    peers: Map<
+        string,
+        {
+            peerId: string
+            connection: MockRTCPeerConnection
+            channel: MockRTCDataChannel | null
+            pendingIceCandidates: RTCIceCandidateInit[]
+            hasRemoteDescription: boolean
+        }
+    >
+    pendingIceByPeer: Map<string, RTCIceCandidateInit[]>
+    signalChain: Promise<void>
 }
 
 async function connectLeaderWithJoiner(engine: GameEngineCloudflare): Promise<string> {
@@ -323,7 +332,9 @@ describe("GameEngineCloudflare", () => {
         internals.peers.set("joiner-1", {
             peerId: "joiner-1",
             connection: peerConnection,
-            channel: new MockRTCDataChannel()
+            channel: new MockRTCDataChannel(),
+            pendingIceCandidates: [],
+            hasRemoteDescription: true
         })
 
         engine.send({ type: GameEngineMessageType.RestartGame })
@@ -378,6 +389,219 @@ describe("GameEngineCloudflare", () => {
         await connectPromise
 
         expect(() => engine.send({ type: GameEngineMessageType.StartGame })).toThrow(/two players/i)
+
+        await engine.dispose()
+    })
+
+    it("lets the leader and joiner see each other from signaling roster events", async () => {
+        const leader = new GameEngineCloudflare()
+        const joiner = new GameEngineCloudflare()
+
+        const leaderConnect = leader.connect({
+            role: ConnectRole.Leader,
+            roomName: "Pup pack",
+            nickname: "Alpha"
+        })
+
+        await vi.waitFor(() => {
+            expect((leader as unknown as EngineInternals).signalingSocket?.readyState).toBe(MockWebSocket.OPEN)
+        })
+
+        const leaderSocket = (leader as unknown as EngineInternals).signalingSocket!
+        const leaderJoin = JSON.parse(leaderSocket.sent[0] as string) as { peerId: string }
+
+        leaderSocket.emit(
+            "message",
+            JSON.stringify({
+                type: "joined",
+                peerId: leaderJoin.peerId,
+                roomCode: "ABCDEF",
+                roomName: "Pup pack",
+                peers: [{ id: leaderJoin.peerId, nickname: "Alpha", isLeader: true }]
+            })
+        )
+        await leaderConnect
+
+        const joinerConnect = joiner.connect({
+            role: ConnectRole.Joiner,
+            roomCode: "ABCDEF",
+            nickname: "Beta"
+        })
+
+        await vi.waitFor(() => {
+            expect((joiner as unknown as EngineInternals).signalingSocket?.readyState).toBe(MockWebSocket.OPEN)
+        })
+
+        const joinerSocket = (joiner as unknown as EngineInternals).signalingSocket!
+        const joinerJoin = JSON.parse(joinerSocket.sent[0] as string) as { peerId: string }
+
+        // Room Durable Object behavior: joiner gets full roster; leader gets peer-joined.
+        joinerSocket.emit(
+            "message",
+            JSON.stringify({
+                type: "joined",
+                peerId: joinerJoin.peerId,
+                roomCode: "ABCDEF",
+                roomName: "Pup pack",
+                peers: [
+                    { id: leaderJoin.peerId, nickname: "Alpha", isLeader: true },
+                    { id: joinerJoin.peerId, nickname: "Beta", isLeader: false }
+                ]
+            })
+        )
+        await joinerConnect
+
+        leaderSocket.emit(
+            "message",
+            JSON.stringify({
+                type: "peer-joined",
+                peer: { id: joinerJoin.peerId, nickname: "Beta", isLeader: false }
+            })
+        )
+
+        expect(leader.getState()?.players.map(player => player.id).sort()).toEqual(
+            [leaderJoin.peerId, joinerJoin.peerId].sort()
+        )
+        expect(joiner.getState()?.players.map(player => player.id).sort()).toEqual(
+            [leaderJoin.peerId, joinerJoin.peerId].sort()
+        )
+
+        await leader.dispose()
+        await joiner.dispose()
+    })
+
+    it("queues trickle ICE until remote description is applied", async () => {
+        const engine = new GameEngineCloudflare()
+        await connectLeaderWithJoiner(engine)
+
+        const internals = engine as unknown as EngineInternals
+        const socket = internals.signalingSocket!
+
+        let releaseRemote: () => void = () => undefined
+        const remoteGate = new Promise<void>(resolve => {
+            releaseRemote = resolve
+        })
+
+        const connection = new MockRTCPeerConnection()
+        connection.setRemoteDescription = vi.fn(async () => {
+            await remoteGate
+        })
+        connection.addIceCandidate = vi.fn(async () => {
+            // tracked
+        })
+
+        internals.peers.set("joiner-1", {
+            peerId: "joiner-1",
+            connection,
+            channel: new MockRTCDataChannel(),
+            pendingIceCandidates: [],
+            hasRemoteDescription: false
+        })
+
+        const earlyCandidate = {
+            candidate: "candidate:1 1 UDP 2122252543 1.2.3.4 12345 typ relay",
+            sdpMid: "0"
+        }
+
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "signal",
+                from: "joiner-1",
+                payload: { kind: "ice", candidate: earlyCandidate }
+            })
+        )
+
+        await Promise.resolve()
+        expect(internals.peers.get("joiner-1")?.pendingIceCandidates).toEqual([earlyCandidate])
+        expect(connection.addIceCandidate).not.toHaveBeenCalled()
+
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "signal",
+                from: "joiner-1",
+                payload: { kind: "answer", sdp: { type: "answer", sdp: "v=0" } }
+            })
+        )
+
+        await Promise.resolve()
+        expect(connection.setRemoteDescription).toHaveBeenCalled()
+        expect(connection.addIceCandidate).not.toHaveBeenCalled()
+
+        releaseRemote()
+        await internals.signalChain
+
+        expect(connection.addIceCandidate).toHaveBeenCalledWith(earlyCandidate)
+        expect(internals.peers.get("joiner-1")?.pendingIceCandidates).toEqual([])
+        expect(internals.peers.get("joiner-1")?.hasRemoteDescription).toBe(true)
+
+        await engine.dispose()
+    })
+
+    it("retains ICE candidates that arrive before the peer link exists", async () => {
+        const engine = new GameEngineCloudflare()
+        await connectLeaderWithJoiner(engine)
+
+        const internals = engine as unknown as EngineInternals
+        const socket = internals.signalingSocket!
+        internals.peers.delete("joiner-1")
+
+        const earlyCandidate = {
+            candidate: "candidate:2 1 UDP 1685987071 5.6.7.8 3478 typ relay",
+            sdpMid: "0"
+        }
+
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "signal",
+                from: "stranger-9",
+                payload: { kind: "ice", candidate: earlyCandidate }
+            })
+        )
+
+        await internals.signalChain
+        expect(internals.pendingIceByPeer.get("stranger-9")).toEqual([earlyCandidate])
+
+        let releaseRemote: () => void = () => undefined
+        const remoteGate = new Promise<void>(resolve => {
+            releaseRemote = resolve
+        })
+
+        const originalRtc = globalThis.RTCPeerConnection
+        const created: MockRTCPeerConnection[] = []
+        globalThis.RTCPeerConnection = class extends MockRTCPeerConnection {
+            public constructor() {
+                super()
+                this.setRemoteDescription = vi.fn(async () => {
+                    await remoteGate
+                })
+                this.addIceCandidate = vi.fn(async () => {
+                    // tracked
+                })
+                created.push(this)
+            }
+        } as unknown as typeof RTCPeerConnection
+
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "signal",
+                from: "stranger-9",
+                payload: { kind: "offer", sdp: { type: "offer", sdp: "v=0" } }
+            })
+        )
+
+        await Promise.resolve()
+        expect(internals.pendingIceByPeer.has("stranger-9")).toBe(false)
+        expect(created[0]).toBeTruthy()
+
+        releaseRemote()
+        await internals.signalChain
+
+        expect(created[0]?.addIceCandidate).toHaveBeenCalledWith(earlyCandidate)
+        globalThis.RTCPeerConnection = originalRtc
 
         await engine.dispose()
     })

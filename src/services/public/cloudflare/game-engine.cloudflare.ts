@@ -28,6 +28,9 @@ interface IPeerLink {
     peerId: string
     connection: RTCPeerConnection
     channel: RTCDataChannel | null
+    /** ICE candidates that arrived before `setRemoteDescription` finished. */
+    pendingIceCandidates: RTCIceCandidateInit[]
+    hasRemoteDescription: boolean
 }
 
 export default class GameEngineCloudflare extends BaseWebRtcService implements IGameEngineGateway {
@@ -42,6 +45,10 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
     private announceTimer: ReturnType<typeof setTimeout> | null = null
     private connectAbort: AbortController | null = null
     private sessionUsedTurn = false
+    /** Serializes WebRTC signal handling so trickle ICE cannot race ahead of SDP. */
+    private signalChain: Promise<void> = Promise.resolve()
+    /** Trickle ICE that arrived before the peer link / remote description existed. */
+    private pendingIceByPeer = new Map<string, RTCIceCandidateInit[]>()
 
     public async connect(input: IConnectInput): Promise<IRoomState> {
         await this.disconnect()
@@ -118,6 +125,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         this.isLeader = false
         this.sessionUsedTurn = false
         this.iceServers = []
+        this.signalChain = Promise.resolve()
+        this.pendingIceByPeer.clear()
         this.emit()
     }
 
@@ -356,7 +365,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 break
             }
             case SignalingServerMessageType.Signal: {
-                void this.handleWebRtcSignal(message.from, message.payload)
+                this.enqueueWebRtcSignal(message.from, message.payload)
                 break
             }
             default:
@@ -404,7 +413,13 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         const channel = connection.createDataChannel("bindog", { ordered: true })
         this.attachDataChannel(peerId, channel)
 
-        const link: IPeerLink = { peerId, connection, channel }
+        const link: IPeerLink = {
+            peerId,
+            connection,
+            channel,
+            pendingIceCandidates: this.takePendingIceCandidates(peerId),
+            hasRemoteDescription: false
+        }
         this.peers.set(peerId, link)
 
         const offer = await connection.createOffer()
@@ -420,20 +435,44 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         })
     }
 
+    /**
+     * Queues inbound WebRTC signals so offer/answer apply before trickle ICE.
+     * Across NATs, ICE candidates often arrive immediately after the SDP message;
+     * handling them concurrently drops candidates and leaves peers invisible.
+     */
+    private enqueueWebRtcSignal(from: string, payload: IWebRtcSignalPayload): void {
+        this.signalChain = this.signalChain
+            .then(() => this.handleWebRtcSignal(from, payload))
+            .catch(() => {
+                // Peer may disconnect mid-handshake; keep the queue alive.
+            })
+    }
+
     private async handleWebRtcSignal(from: string, payload: IWebRtcSignalPayload): Promise<void> {
         if (payload.kind === WebRtcSignalKind.Offer) {
             let link = this.peers.get(from)
             if (!link) {
                 const connection = this.createPeerConnection(from)
-                link = { peerId: from, connection, channel: null }
+                link = {
+                    peerId: from,
+                    connection,
+                    channel: null,
+                    pendingIceCandidates: this.takePendingIceCandidates(from),
+                    hasRemoteDescription: false
+                }
                 this.peers.set(from, link)
 
                 connection.addEventListener("datachannel", event => {
                     this.attachDataChannel(from, event.channel)
                 })
+            } else {
+                link.pendingIceCandidates.push(...this.takePendingIceCandidates(from))
             }
 
             await link.connection.setRemoteDescription(payload.sdp)
+            link.hasRemoteDescription = true
+            await this.flushPendingIceCandidates(link)
+
             const answer = await link.connection.createAnswer()
             await link.connection.setLocalDescription(answer)
 
@@ -452,15 +491,47 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             const link = this.peers.get(from)
             if (!link) return
             await link.connection.setRemoteDescription(payload.sdp)
+            link.hasRemoteDescription = true
+            await this.flushPendingIceCandidates(link)
             return
         }
 
         const link = this.peers.get(from)
-        if (!link) return
+        if (!link) {
+            const pending = this.pendingIceByPeer.get(from) ?? []
+            pending.push(payload.candidate)
+            this.pendingIceByPeer.set(from, pending)
+            return
+        }
+
+        if (!link.hasRemoteDescription) {
+            link.pendingIceCandidates.push(payload.candidate)
+            return
+        }
+
         try {
             await link.connection.addIceCandidate(payload.candidate)
         } catch {
-            // Candidate may arrive before remote description in rare races.
+            // Ignore stale candidates after a restart or teardown.
+        }
+    }
+
+    private takePendingIceCandidates(peerId: string): RTCIceCandidateInit[] {
+        const pending = this.pendingIceByPeer.get(peerId) ?? []
+        this.pendingIceByPeer.delete(peerId)
+        return pending
+    }
+
+    private async flushPendingIceCandidates(link: IPeerLink): Promise<void> {
+        const pending = link.pendingIceCandidates
+        link.pendingIceCandidates = []
+
+        for (const candidate of pending) {
+            try {
+                await link.connection.addIceCandidate(candidate)
+            } catch {
+                // Candidate may be stale after an ICE restart.
+            }
         }
     }
 
@@ -959,6 +1030,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
     }
 
     private teardownPeer(peerId: string): void {
+        this.pendingIceByPeer.delete(peerId)
         const link = this.peers.get(peerId)
         if (!link) return
 
