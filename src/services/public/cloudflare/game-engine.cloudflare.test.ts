@@ -512,8 +512,11 @@ describe("GameEngineCloudflare", () => {
             })
         )
 
-        await Promise.resolve()
-        expect(internals.peers.get("joiner-1")?.pendingIceCandidates).toEqual([earlyCandidate])
+        // Drain the serialized signal queue (nested .then/.catch) — a single
+        // microtask is not enough for the chain to settle.
+        await vi.waitFor(() => {
+            expect(internals.peers.get("joiner-1")?.pendingIceCandidates).toEqual([earlyCandidate])
+        })
         expect(connection.addIceCandidate).not.toHaveBeenCalled()
 
         socket.emit(
@@ -525,8 +528,11 @@ describe("GameEngineCloudflare", () => {
             })
         )
 
-        await Promise.resolve()
-        expect(connection.setRemoteDescription).toHaveBeenCalled()
+        // Answer handling starts setRemoteDescription but awaits the gate; wait
+        // until the call is observed without waiting for the full signalChain.
+        await vi.waitFor(() => {
+            expect(connection.setRemoteDescription).toHaveBeenCalled()
+        })
         expect(connection.addIceCandidate).not.toHaveBeenCalled()
 
         releaseRemote()
@@ -593,9 +599,12 @@ describe("GameEngineCloudflare", () => {
             })
         )
 
-        await Promise.resolve()
-        expect(internals.pendingIceByPeer.has("stranger-9")).toBe(false)
-        expect(created[0]).toBeTruthy()
+        await vi.waitFor(() => {
+            expect(internals.pendingIceByPeer.has("stranger-9")).toBe(false)
+            expect(created[0]).toBeTruthy()
+            expect(created[0]?.setRemoteDescription).toHaveBeenCalled()
+        })
+        expect(created[0]?.addIceCandidate).not.toHaveBeenCalled()
 
         releaseRemote()
         await internals.signalChain
