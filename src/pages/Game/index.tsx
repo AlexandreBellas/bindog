@@ -109,18 +109,16 @@ export default function Game() {
                     </h1>
                 </header>
 
-                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden sm:grid sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] sm:items-stretch sm:gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
-                    <div className="flex w-full shrink-0 flex-col gap-2 sm:sticky sm:top-0 sm:gap-3">
-                        <div className="min-h-0 max-h-[min(4.75rem,12dvh)] sm:max-h-none">
-                            <BreedAnnouncement
-                                breedId={game?.currentBreedId ?? null}
-                                announceStartedAt={game?.announceStartedAt ?? null}
-                                announceIntervalMs={game?.announceIntervalMs ?? ANNOUNCE_INTERVAL_MS}
-                                className="h-full max-h-full"
-                            />
-                        </div>
-                        <FakeBingoBanner playerName={fakePlayer?.nickname ?? null} />
+                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden sm:gap-5">
+                    <div className="min-h-0 max-h-[min(4.75rem,12dvh)] w-full shrink-0 sm:max-h-none">
+                        <BreedAnnouncement
+                            breedId={game?.currentBreedId ?? null}
+                            announceStartedAt={game?.announceStartedAt ?? null}
+                            announceIntervalMs={game?.announceIntervalMs ?? ANNOUNCE_INTERVAL_MS}
+                            className="h-full max-h-full"
+                        />
                     </div>
+                    <FakeBingoBanner playerName={fakePlayer?.nickname ?? null} />
 
                     <div className="@container-size flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
                         {board ? (

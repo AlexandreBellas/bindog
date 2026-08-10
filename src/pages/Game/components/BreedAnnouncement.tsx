@@ -42,7 +42,7 @@ export default function BreedAnnouncement({
                 <p className="m-0 text-[0.625rem] font-semibold uppercase tracking-[0.16em] text-(--kicker) sm:text-xs">
                     {m.game_announcement_label()}
                 </p>
-                <h2 className="display-title m-0 truncate text-sm font-extrabold leading-tight text-(--bark) sm:text-2xl sm:leading-normal">
+                <h2 className="display-title m-0 truncate text-sm font-extrabold leading-tight text-(--bark) sm:overflow-visible sm:text-2xl sm:leading-normal sm:whitespace-normal sm:text-clip">
                     {breed?.name ?? "—"}
                 </h2>
                 <div
