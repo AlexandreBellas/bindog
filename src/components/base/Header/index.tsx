@@ -1,12 +1,20 @@
 import BindogMark from "#/components/brand/BindogMark"
 import LocaleSwitcher from "#/components/locale/LocaleSwitcher"
 import ThemeToggle from "#/components/theme/ThemeToggle"
+import { cn } from "#/lib/utils"
 import { m } from "#/paraglide/messages"
-import { Link } from "@tanstack/react-router"
+import { Link, useRouterState } from "@tanstack/react-router"
 
 export default function Header() {
+    const isGameRoute = useRouterState({ select: state => state.location.pathname === "/game" })
+
     return (
-        <header className="sticky top-0 z-50 border-b border-(--line) bg-(--header-bg) px-4 backdrop-blur-lg">
+        <header
+            className={cn(
+                "sticky top-0 z-50 border-b border-(--line) bg-(--header-bg) px-4 backdrop-blur-lg",
+                isGameRoute && "hidden md:block"
+            )}
+        >
             <nav className="page-wrap flex items-center gap-3 py-3 sm:py-4">
                 <Link
                     to="/"
