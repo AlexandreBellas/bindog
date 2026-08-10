@@ -88,4 +88,3 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local_dir: "./dist/client"
           ssl_verify_certificate: "false"
-          lftp_settings: "set mirror:parallel-transfer-count 8; set net:connection-limit 8;"
