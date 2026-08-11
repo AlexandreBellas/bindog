@@ -54,11 +54,23 @@ export default function Matchmaking() {
         })
     }, [])
     /**
-     * Guard: lobby requires an active gateway session.
+     * Guard: lobby requires an active gateway session (or a successful restore).
      */
     useEffect(() => {
-        if (!room) {
-            void navigate({ to: "/" })
+        if (room) return
+
+        let cancelled = false
+
+        void (async () => {
+            const restored = await gameEngine.restoreSession()
+            if (cancelled) return
+            if (!restored) {
+                void navigate({ to: "/" })
+            }
+        })()
+
+        return () => {
+            cancelled = true
         }
     }, [navigate, room])
     /**

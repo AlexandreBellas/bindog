@@ -1,6 +1,10 @@
 import DogIllustration from "#/components/brand/DogIllustration"
 import { m } from "#/paraglide/messages"
-import { useState } from "react"
+import { RoomPhase } from "#/@types/room"
+import { loadRoomSession } from "#/services/public/cloudflare/room-session"
+import gameEngine from "#/services/public/game-engine"
+import { useNavigate } from "@tanstack/react-router"
+import { useEffect, useState } from "react"
 import type { ILandingModal } from "./@types/modal"
 import HeroActions from "./components/HeroActions"
 import JoinGameModal from "./components/JoinGameModal"
@@ -9,9 +13,66 @@ import StartGameModal from "./components/StartGameModal"
 import TutorialModal from "./components/TutorialModal"
 
 export default function Landing() {
+    // #region Params
+    const navigate = useNavigate()
+    // #endregion
+
     // #region States
     const [activeModal, setActiveModal] = useState<ILandingModal>(null)
+    const [isRestoring, setIsRestoring] = useState(
+        () => Boolean(gameEngine.getState()) || Boolean(loadRoomSession())
+    )
     // #endregion
+
+    // #region Effects
+    /**
+     * Rejoin a room persisted in localStorage after reload or process death.
+     */
+    useEffect(() => {
+        let cancelled = false
+
+        void (async () => {
+            const existing = gameEngine.getState()
+            if (existing) {
+                if (!cancelled) {
+                    await navigate({
+                        to:
+                            existing.phase === RoomPhase.Playing || existing.phase === RoomPhase.Ended
+                                ? "/game"
+                                : "/matchmaking"
+                    })
+                }
+                return
+            }
+
+            setIsRestoring(true)
+            const restored = await gameEngine.restoreSession()
+            if (cancelled) return
+
+            setIsRestoring(false)
+            if (!restored) return
+
+            await navigate({
+                to:
+                    restored.phase === RoomPhase.Playing || restored.phase === RoomPhase.Ended
+                        ? "/game"
+                        : "/matchmaking"
+            })
+        })()
+
+        return () => {
+            cancelled = true
+        }
+    }, [navigate])
+    // #endregion
+
+    if (isRestoring) {
+        return (
+            <main className="page-wrap flex flex-1 flex-col items-center justify-center px-4 pb-8 pt-6">
+                <p className="m-0 text-base font-semibold text-(--bark-soft)">{m.connecting()}</p>
+            </main>
+        )
+    }
 
     return (
         <main className="page-wrap flex flex-col px-4 pb-8 pt-6 md:min-h-0 md:flex-1 md:overflow-hidden md:pb-6 md:pt-10">

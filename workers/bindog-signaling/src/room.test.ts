@@ -238,4 +238,58 @@ describe("RoomDurableObject peer visibility", () => {
         ])
         expect(leaderSocket.sent).toEqual([])
     })
+
+    it("replaces an existing peerId on reconnect without rejecting", async () => {
+        const firstSocket = acceptSocket()
+        const replacementSocket = acceptSocket()
+
+        await room.webSocketMessage(
+            firstSocket as unknown as WebSocket,
+            JSON.stringify({
+                type: "join",
+                role: "leader",
+                peerId: "leader-1",
+                nickname: "Alpha"
+            })
+        )
+
+        await room.webSocketMessage(
+            replacementSocket as unknown as WebSocket,
+            JSON.stringify({
+                type: "join",
+                role: "joiner",
+                peerId: "leader-1",
+                nickname: "Alpha"
+            })
+        )
+
+        const joined = replacementSocket.sent.find(
+            message => (message as { type?: string }).type === "joined"
+        ) as {
+            peers: Array<{ id: string; nickname: string; isLeader: boolean }>
+        }
+
+        expect(firstSocket.closed?.code).toBe(4000)
+        expect(joined.peers).toEqual([{ id: "leader-1", nickname: "Alpha", isLeader: true }])
+    })
+
+    it("promotes a joiner to leader when the room has no leader", async () => {
+        const socket = acceptSocket()
+
+        await room.webSocketMessage(
+            socket as unknown as WebSocket,
+            JSON.stringify({
+                type: "join",
+                role: "joiner",
+                peerId: "solo-1",
+                nickname: "Solo"
+            })
+        )
+
+        const joined = socket.sent.find(message => (message as { type?: string }).type === "joined") as {
+            peers: Array<{ id: string; isLeader: boolean }>
+        }
+
+        expect(joined.peers).toEqual([{ id: "solo-1", nickname: "Solo", isLeader: true }])
+    })
 })

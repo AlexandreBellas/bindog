@@ -228,31 +228,51 @@ export class RoomDurableObject {
         }
 
         const peers = this.listPeers()
+        const existingSocket = this.findSocketByPeerId(join.peerId)
+        const isReconnect = Boolean(existingSocket && existingSocket !== socket)
 
-        if (join.role === "leader" && peers.some(peer => peer.isLeader)) {
-            send(socket, { type: "error", message: "Room already has a leader" })
-            return
-        }
-
-        if (peers.some(peer => peer.peerId === join.peerId)) {
+        // Same peerId rejoining (reload / app switch): silently replace the old socket.
+        if (isReconnect && existingSocket) {
+            existingSocket.serializeAttachment(null)
+            try {
+                existingSocket.close(4000, "replaced")
+            } catch {
+                // Already closed.
+            }
+        } else if (peers.some(peer => peer.peerId === join.peerId)) {
             send(socket, { type: "error", message: "Peer id already in use" })
             return
         }
 
-        const nickname = allocateUniqueNickname(
-            peers.map(peer => peer.nickname),
-            String(join.nickname)
-        )
+        const rosterWithoutSelf = this.listPeers().filter(peer => peer.peerId !== join.peerId)
+        const hasLeader = rosterWithoutSelf.some(peer => peer.isLeader)
+
+        if (join.role === "leader" && hasLeader) {
+            send(socket, { type: "error", message: "Room already has a leader" })
+            return
+        }
+
+        // Reuse the previous nickname on reconnect so uniquify does not append "2".
+        const previous = isReconnect ? peers.find(peer => peer.peerId === join.peerId) : undefined
+        const nickname = previous
+            ? previous.nickname
+            : allocateUniqueNickname(
+                  rosterWithoutSelf.map(peer => peer.nickname),
+                  String(join.nickname)
+              )
+
+        // Empty rooms (everyone left / reloaded) need a leader so the lobby can start again.
+        const isLeader = join.role === "leader" || !hasLeader
 
         const peer: IPeerAttachment = {
             peerId: join.peerId,
             nickname,
-            isLeader: join.role === "leader"
+            isLeader
         }
 
         socket.serializeAttachment(peer)
 
-        const roster = [...peers, peer]
+        const roster = [...rosterWithoutSelf, peer]
 
         send(socket, {
             type: "joined",

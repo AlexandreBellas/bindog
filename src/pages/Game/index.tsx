@@ -55,19 +55,37 @@ export default function Game() {
         })
     }, [])
     /**
-     * Guard: playing requires an active gateway session.
+     * Guard: playing requires an active gateway session (or a successful restore).
      * Abandoned rooms stay mounted so the home redirect alert can show.
      */
     useEffect(() => {
-        if (!room) {
-            void navigate({ to: "/" })
+        if (room?.abandoned) return
+
+        if (room) {
+            if (room.phase === RoomPhase.Lobby || room.phase === RoomPhase.Countdown) {
+                void navigate({ to: "/matchmaking" })
+            }
             return
         }
 
-        if (room.abandoned) return
+        let cancelled = false
 
-        if (room.phase === RoomPhase.Lobby || room.phase === RoomPhase.Countdown) {
-            void navigate({ to: "/matchmaking" })
+        void (async () => {
+            const restored = await gameEngine.restoreSession()
+            if (cancelled) return
+
+            if (!restored) {
+                void navigate({ to: "/" })
+                return
+            }
+
+            if (restored.phase === RoomPhase.Lobby || restored.phase === RoomPhase.Countdown) {
+                void navigate({ to: "/matchmaking" })
+            }
+        })()
+
+        return () => {
+            cancelled = true
         }
     }, [navigate, room])
     /**
