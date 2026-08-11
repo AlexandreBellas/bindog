@@ -27,37 +27,40 @@ export default function Landing() {
     // #region Effects
     /**
      * Rejoin a room persisted in localStorage after reload or process death.
+     * Always clears the restoring gate so a hung/failed restore cannot block Join/Create.
      */
     useEffect(() => {
         let cancelled = false
 
         void (async () => {
-            const existing = gameEngine.getState()
-            if (existing) {
-                if (!cancelled) {
-                    await navigate({
-                        to:
-                            existing.phase === RoomPhase.Playing || existing.phase === RoomPhase.Ended
-                                ? "/game"
-                                : "/matchmaking"
-                    })
+            try {
+                const existing = gameEngine.getState()
+                if (existing) {
+                    if (!cancelled) {
+                        await navigate({
+                            to:
+                                existing.phase === RoomPhase.Playing || existing.phase === RoomPhase.Ended
+                                    ? "/game"
+                                    : "/matchmaking"
+                        })
+                    }
+                    return
                 }
-                return
+
+                if (!loadRoomSession()) return
+
+                const restored = await gameEngine.restoreSession()
+                if (cancelled || !restored) return
+
+                await navigate({
+                    to:
+                        restored.phase === RoomPhase.Playing || restored.phase === RoomPhase.Ended
+                            ? "/game"
+                            : "/matchmaking"
+                })
+            } finally {
+                if (!cancelled) setIsRestoring(false)
             }
-
-            setIsRestoring(true)
-            const restored = await gameEngine.restoreSession()
-            if (cancelled) return
-
-            setIsRestoring(false)
-            if (!restored) return
-
-            await navigate({
-                to:
-                    restored.phase === RoomPhase.Playing || restored.phase === RoomPhase.Ended
-                        ? "/game"
-                        : "/matchmaking"
-            })
         })()
 
         return () => {

@@ -3,6 +3,7 @@ import { GameEngineMessageType, RoomPhase } from "#/@types/room"
 import LeaveGameButton from "#/components/LeaveGameButton"
 import { Button } from "#/components/ui/button"
 import { m } from "#/paraglide/messages"
+import { loadRoomSession } from "#/services/public/cloudflare/room-session"
 import gameEngine from "#/services/public/game-engine"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
@@ -64,7 +65,8 @@ export default function Matchmaking() {
         void (async () => {
             const restored = await gameEngine.restoreSession()
             if (cancelled) return
-            if (!restored) {
+            // Keep the lobby mounted while a persisted session retries; only leave when none remains.
+            if (!restored && !loadRoomSession()) {
                 void navigate({ to: "/" })
             }
         })()
@@ -87,8 +89,11 @@ export default function Matchmaking() {
 
     const localPlayer = room.players.find(player => player.id === room.localPlayerId)
     const isLeader = Boolean(localPlayer?.isLeader)
-    // Derive from reactive `room` so React Compiler cannot freeze a stale gateway read.
-    const canStart = isLeader && room.phase === RoomPhase.Lobby && room.players.length >= 2
+    // Derive from reactive room fields so React Compiler cannot freeze a stale gateway read.
+    // Peers inside leave-grace stay listed but must not satisfy "two players".
+    const pendingLeaves = new Set(room.pendingLeavePeerIds ?? [])
+    const activePlayerCount = room.players.filter(player => !pendingLeaves.has(player.id)).length
+    const canStart = isLeader && room.phase === RoomPhase.Lobby && activePlayerCount >= 2
 
     return (
         <main className="relative flex min-h-0 w-full flex-1 flex-col overflow-y-auto">

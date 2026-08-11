@@ -81,6 +81,7 @@ function makeState(overrides: Partial<IRoomState> = {}): IRoomState {
         localPlayerId: "leader-1",
         game: null,
         abandoned: false,
+        pendingLeavePeerIds: [],
         ...overrides
     }
 }
@@ -126,6 +127,16 @@ describe("evaluateCanStartGame", () => {
 
     it("blocks joiners from starting", () => {
         expect(service.evaluateCanStartGame(makeState({ localPlayerId: "joiner-1" }))).toBe(false)
+    })
+
+    it("ignores peers inside leave-grace when counting players", () => {
+        expect(
+            service.evaluateCanStartGame(
+                makeState({
+                    pendingLeavePeerIds: ["joiner-1"]
+                })
+            )
+        ).toBe(false)
     })
 })
 

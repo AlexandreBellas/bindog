@@ -37,6 +37,11 @@ export interface IRoomState {
     game: IGameState | null
     /** True when the round was cut short because every other player left. */
     abandoned: boolean
+    /**
+     * Peer ids inside leave-grace (still listed, not counted for start).
+     * Kept on room state so lobby UI can react without stale gateway reads.
+     */
+    pendingLeavePeerIds: string[]
 }
 
 export interface IConnectAsLeader {

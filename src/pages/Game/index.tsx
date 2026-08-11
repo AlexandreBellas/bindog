@@ -4,6 +4,7 @@ import LeaveGameButton from "#/components/LeaveGameButton"
 import { ANNOUNCE_INTERVAL_MS } from "#/constants/announce"
 import { m } from "#/paraglide/messages"
 import { createInitialMarks, isBingoReady } from "#/services/base/utils/bingo"
+import { loadRoomSession } from "#/services/public/cloudflare/room-session"
 import gameEngine from "#/services/public/game-engine"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
@@ -75,7 +76,10 @@ export default function Game() {
             if (cancelled) return
 
             if (!restored) {
-                void navigate({ to: "/" })
+                // Transient signaling failures keep localStorage; only bail when nothing to retry.
+                if (!loadRoomSession()) {
+                    void navigate({ to: "/" })
+                }
                 return
             }
 

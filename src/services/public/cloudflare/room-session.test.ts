@@ -3,8 +3,11 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
     clearRoomSession,
     loadRoomSession,
+    PEER_LEAVE_GRACE_MS,
     ROOM_SESSION_STORAGE_KEY,
-    saveRoomSession
+    saveRoomSession,
+    SIGNALING_CONNECT_TIMEOUT_MS,
+    SIGNALING_RECONNECT_DELAY_MS
 } from "./room-session"
 
 describe("room-session", () => {
@@ -44,5 +47,11 @@ describe("room-session", () => {
         saveRoomSession({ roomCode: "ABCDEF", nickname: "Alpha", peerId: "peer-1" })
         clearRoomSession()
         expect(loadRoomSession()).toBeNull()
+    })
+
+    it("exports positive reconnect, leave-grace, and connect-timeout delays", () => {
+        expect(PEER_LEAVE_GRACE_MS).toBeGreaterThan(0)
+        expect(SIGNALING_RECONNECT_DELAY_MS).toBeGreaterThan(0)
+        expect(SIGNALING_CONNECT_TIMEOUT_MS).toBeGreaterThan(SIGNALING_RECONNECT_DELAY_MS)
     })
 })

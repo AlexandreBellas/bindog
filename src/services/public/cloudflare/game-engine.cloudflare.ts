@@ -1,15 +1,6 @@
-import type IGameEngineGateway from "../IGameEngineGateway"
-import type { IRoomStateListener } from "../IGameEngineGateway"
 import type { IGameState, IPlayerProgress } from "#/@types/game"
-import { ConnectRole, GameEngineMessageType, RoomPhase } from "#/@types/room"
 import type { IConnectInput, IGameEngineMessage, IRoomState } from "#/@types/room"
-import {
-    DataChannelMessageType,
-    IceTransportPath,
-    SignalingClientMessageType,
-    SignalingServerMessageType,
-    WebRtcSignalKind
-} from "#/@types/signaling"
+import { ConnectRole, GameEngineMessageType, RoomPhase } from "#/@types/room"
 import type {
     IDataChannelMessage,
     IIceServersResponse,
@@ -17,6 +8,13 @@ import type {
     ISignalingServerMessage,
     ISyncMessage,
     IWebRtcSignalPayload
+} from "#/@types/signaling"
+import {
+    DataChannelMessageType,
+    IceTransportPath,
+    SignalingClientMessageType,
+    SignalingServerMessageType,
+    WebRtcSignalKind
 } from "#/@types/signaling"
 import { ANNOUNCE_INTERVAL_MS } from "#/constants/announce"
 import { BREED_IDS } from "#/constants/breeds"
@@ -29,14 +27,17 @@ import {
     shuffleCallOrder
 } from "#/services/base/utils/bingo"
 import BaseWebRtcService from "#/services/base/webrtc"
+import type IGameEngineGateway from "../IGameEngineGateway"
+import type { IRoomStateListener } from "../IGameEngineGateway"
+import type { IRoomSession } from "./room-session"
 import {
     clearRoomSession,
     loadRoomSession,
     PEER_LEAVE_GRACE_MS,
     saveRoomSession,
+    SIGNALING_CONNECT_TIMEOUT_MS,
     SIGNALING_RECONNECT_DELAY_MS
 } from "./room-session"
-import type { IRoomSession } from "./room-session"
 
 interface IPeerLink {
     peerId: string
@@ -68,16 +69,21 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
     private lifecycleBound = false
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null
     private restorePromise: Promise<IRoomState | null> | null = null
-    /** peerId → grace timer before roster removal / abandon after peer-left. */
-    private pendingPeerLeaves = new Map<string, ReturnType<typeof setTimeout>>()
+    /** peerId → grace deadline for roster removal after peer-left / RTC drop. */
+    private pendingPeerLeaves = new Map<string, { deadline: number; timer: ReturnType<typeof setTimeout> }>()
+    /** >0 while intentionally tearing down RTC so close events do not start leave grace. */
+    private suppressPeerLeaveGrace = 0
 
     public async connect(input: IConnectInput): Promise<IRoomState> {
         this.suppressAutoReconnect = true
+        this.clearReconnectTimer()
         await this.teardownConnection({ clearSession: true, sendLeave: true })
-        this.suppressAutoReconnect = false
 
         const nickname = input.nickname.trim().slice(0, 24)
-        if (!nickname) throw new Error("Nickname is required")
+        if (!nickname) {
+            this.suppressAutoReconnect = false
+            throw new Error("Nickname is required")
+        }
 
         this.connectAbort = new AbortController()
         const { signal } = this.connectAbort
@@ -119,7 +125,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 countdown: null,
                 localPlayerId: this.localPeerId,
                 game: null,
-                abandoned: false
+                abandoned: false,
+                pendingLeavePeerIds: []
             }
             this.emit()
 
@@ -128,10 +135,10 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             this.ensureLifecycleListeners()
             return this.requireState()
         } catch (error) {
-            this.suppressAutoReconnect = true
             await this.teardownConnection({ clearSession: true, sendLeave: false })
-            this.suppressAutoReconnect = false
             throw error
+        } finally {
+            this.suppressAutoReconnect = false
         }
     }
 
@@ -144,12 +151,13 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
 
         this.restorePromise = this.reconnectWithSession(session)
             .then(state => state)
-            .catch(() => {
-                clearRoomSession()
-                return null
-            })
+            .catch(() => null)
             .finally(() => {
                 this.restorePromise = null
+                // Transient restore failures must not wipe localStorage — retry while the session remains.
+                if (!this.state && loadRoomSession() && !this.suppressAutoReconnect) {
+                    this.scheduleReconnect()
+                }
             })
 
         return this.restorePromise
@@ -157,20 +165,29 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
 
     public async disconnect(): Promise<void> {
         this.suppressAutoReconnect = true
-        await this.teardownConnection({ clearSession: true, sendLeave: true })
-        this.suppressAutoReconnect = false
+        this.clearReconnectTimer()
+        try {
+            await this.teardownConnection({ clearSession: true, sendLeave: true })
+        } finally {
+            this.suppressAutoReconnect = false
+        }
     }
 
+    /**
+     * Drops in-memory connections without leaving the room or clearing localStorage.
+     * Models process death / full page reload so a later `restoreSession` can rejoin.
+     */
     public dispose(): void {
+        this.suppressAutoReconnect = true
+        this.clearReconnectTimer()
         this.unbindLifecycleListeners()
-        void this.disconnect()
+        void this.teardownConnection({ clearSession: false, sendLeave: false })
         this.listeners.clear()
     }
 
     public send(message: IGameEngineMessage): void {
         if (message.type === GameEngineMessageType.StartGame) {
-            const state = this.requireState()
-            if (!this.evaluateCanStartGame(state)) {
+            if (!this.canStartGame()) {
                 throw new Error("Need at least two players to start")
             }
             void this.beginCountdown()
@@ -199,6 +216,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
     }
 
     public canStartGame(): boolean {
+        this.sweepExpiredPeerLeaves()
+
         const state = this.state
         if (!state) return false
         return this.evaluateCanStartGame(state)
@@ -221,7 +240,6 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         this.sessionUsedTurn = false
         this.signalChain = Promise.resolve()
         this.pendingIceByPeer.clear()
-        this.suppressAutoReconnect = false
 
         this.connectAbort = new AbortController()
         const { signal } = this.connectAbort
@@ -243,9 +261,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 name: existing.name,
                 players: previous?.players.length
                     ? previous.players.map(player =>
-                          player.id === session.peerId
-                              ? { ...player, nickname: session.nickname }
-                              : player
+                          player.id === session.peerId ? { ...player, nickname: session.nickname } : player
                       )
                     : [
                           {
@@ -258,7 +274,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 countdown: previous?.countdown ?? null,
                 localPlayerId: this.localPeerId,
                 game: previous?.game ?? null,
-                abandoned: previous?.abandoned ?? false
+                abandoned: previous?.abandoned ?? false,
+                pendingLeavePeerIds: []
             }
             this.emit()
 
@@ -267,11 +284,21 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             this.ensureLifecycleListeners()
             return this.requireState()
         } catch (error) {
-            this.suppressAutoReconnect = true
-            await this.teardownConnection({ clearSession: true, sendLeave: false })
-            this.suppressAutoReconnect = false
+            // Only drop the persisted session when the room is confirmed gone / corrupt.
+            // Transient signaling failures must survive reload and app switches.
+            await this.teardownConnection({
+                clearSession: this.isRoomGoneError(error),
+                sendLeave: false
+            })
             throw error
+        } finally {
+            this.suppressAutoReconnect = false
         }
+    }
+
+    private isRoomGoneError(error: unknown): boolean {
+        if (!(error instanceof Error)) return false
+        return /invalid room code|room not found/i.test(error.message)
     }
 
     private async teardownConnection(options: { clearSession: boolean; sendLeave: boolean }): Promise<void> {
@@ -358,6 +385,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         this.lifecycleBound = true
         document.addEventListener("visibilitychange", this.handleVisibilityChange)
         window.addEventListener("online", this.handleOnline)
+        window.addEventListener("pagehide", this.handlePageHide)
     }
 
     private unbindLifecycleListeners(): void {
@@ -366,10 +394,12 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         this.lifecycleBound = false
         document.removeEventListener("visibilitychange", this.handleVisibilityChange)
         window.removeEventListener("online", this.handleOnline)
+        window.removeEventListener("pagehide", this.handlePageHide)
     }
 
     private handleVisibilityChange = (): void => {
         if (document.visibilityState === "visible") {
+            this.sweepExpiredPeerLeaves()
             void this.ensureSignalingConnected()
         }
     }
@@ -378,14 +408,36 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         void this.ensureSignalingConnected()
     }
 
+    /**
+     * Persist the session on unload / mobile backgrounding. Never send leave here —
+     * the player should rejoin the same room after reload or app switch.
+     */
+    private handlePageHide = (): void => {
+        this.persistCurrentSession()
+    }
+
     private requireState(): IRoomState {
         if (!this.state) throw new Error("Not connected")
         return this.state
     }
 
     private setState(next: IRoomState): void {
-        this.state = next
+        this.state = {
+            ...next,
+            pendingLeavePeerIds: [...this.pendingPeerLeaves.keys()]
+        }
         this.emit()
+    }
+
+    /**
+     * Publishes the current leave-grace set onto room state so lobby UI stays reactive.
+     */
+    private publishPendingLeaves(): void {
+        if (!this.state) {
+            this.emit()
+            return
+        }
+        this.setState(this.state)
     }
 
     private emit(): void {
@@ -448,32 +500,61 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         return new Promise((resolve, reject) => {
             const socket = new WebSocket(this.getSignalingWsUrl(roomCode))
             this.signalingSocket = socket
+            let settled = false
+            let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+            const settle = (action: () => void) => {
+                if (settled) return
+                settled = true
+                cleanup()
+                action()
+            }
 
             const onAbort = () => {
-                cleanup()
-                try {
-                    socket.close()
-                } catch {
-                    // Ignore.
-                }
-                reject(new Error("Connection aborted"))
+                settle(() => {
+                    try {
+                        socket.close()
+                    } catch {
+                        // Ignore.
+                    }
+                    reject(new Error("Connection aborted"))
+                })
+            }
+
+            const onTimeout = () => {
+                settle(() => {
+                    try {
+                        socket.close()
+                    } catch {
+                        // Ignore.
+                    }
+                    reject(new Error("Connection timed out"))
+                })
             }
 
             const cleanup = () => {
                 signal.removeEventListener("abort", onAbort)
                 socket.removeEventListener("open", onOpen)
                 socket.removeEventListener("error", onError)
+                if (timeoutId !== null) {
+                    clearTimeout(timeoutId)
+                    timeoutId = null
+                }
             }
 
+            timeoutId = setTimeout(onTimeout, SIGNALING_CONNECT_TIMEOUT_MS)
+
             const onError = () => {
-                cleanup()
-                reject(new Error("Connection failed"))
+                settle(() => {
+                    reject(new Error("Connection failed"))
+                })
             }
 
             const onOpen = () => {
                 if (!this.localPeerId) {
-                    cleanup()
-                    reject(new Error("Missing local peer id"))
+                    settle(() => {
+                        reject(new Error("Missing local peer id"))
+                    })
                     return
                 }
 
@@ -486,6 +567,11 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             }
 
             signal.addEventListener("abort", onAbort)
+            if (signal.aborted) {
+                onAbort()
+                return
+            }
+
             socket.addEventListener("open", onOpen)
             socket.addEventListener("error", onError)
 
@@ -503,15 +589,17 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 if (!message) return
 
                 if (message.type === SignalingServerMessageType.Joined) {
-                    cleanup()
-                    this.handleJoined(message)
-                    resolve()
+                    settle(() => {
+                        this.handleJoined(message)
+                        resolve()
+                    })
                     return
                 }
 
                 if (message.type === SignalingServerMessageType.Error) {
-                    cleanup()
-                    reject(new Error(message.message || "Connection failed"))
+                    settle(() => {
+                        reject(new Error(message.message || "Connection failed"))
+                    })
                     return
                 }
 
@@ -519,8 +607,16 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             })
 
             socket.addEventListener("close", () => {
-                if (this.signalingSocket !== socket) return
-                this.signalingSocket = null
+                if (this.signalingSocket === socket) this.signalingSocket = null
+
+                // Handshake died before joined/error — fail the connect instead of hanging forever.
+                if (!settled) {
+                    settle(() => {
+                        reject(new Error("Connection closed"))
+                    })
+                    return
+                }
+
                 if (!this.suppressAutoReconnect && loadRoomSession()) {
                     this.scheduleReconnect()
                 }
@@ -551,7 +647,9 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         if (this.isLeader) {
             for (const peer of players) {
                 if (peer.id === this.localPeerId) continue
-                this.teardownPeer(peer.id)
+                this.withSuppressedPeerLeaveGrace(() => {
+                    this.teardownPeer(peer.id)
+                })
                 void this.connectToJoiner(peer.id).catch(() => {
                     // Peer may disconnect while the offer is being prepared.
                 })
@@ -583,7 +681,9 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 this.setState(next)
 
                 if (this.isLeader && message.peer.id !== this.localPeerId) {
-                    this.teardownPeer(message.peer.id)
+                    this.withSuppressedPeerLeaveGrace(() => {
+                        this.teardownPeer(message.peer.id)
+                    })
                     void this.connectToJoiner(message.peer.id).catch(() => {
                         // Peer may disconnect while the offer is being prepared.
                     })
@@ -604,7 +704,9 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
     }
 
     private handlePeerLeft(peerId: string, newLeaderId: string | null): void {
-        this.teardownPeer(peerId)
+        this.withSuppressedPeerLeaveGrace(() => {
+            this.teardownPeer(peerId)
+        })
         if (!this.state) return
 
         let next = this.state
@@ -621,7 +723,9 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         }
 
         if (becameLeader) {
-            this.closeAllPeers()
+            this.withSuppressedPeerLeaveGrace(() => {
+                this.closeAllPeers()
+            })
             for (const player of next.players) {
                 if (player.id === this.localPeerId) continue
                 if (player.id === peerId) continue
@@ -632,17 +736,53 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             this.resumeAnnounceLoop()
         }
 
+        this.schedulePeerLeaveGrace(peerId)
+    }
+
+    /**
+     * Marks a peer as leaving; removes them from the roster once the grace deadline passes.
+     * Uses both a timer and a deadline so background-tab timer throttling cannot leave phantoms.
+     */
+    private schedulePeerLeaveGrace(peerId: string): void {
+        if (!peerId || peerId === this.localPeerId) return
+        if (!this.state?.players.some(player => player.id === peerId)) return
+
         this.cancelPendingPeerLeave(peerId)
+
+        const deadline = Date.now() + PEER_LEAVE_GRACE_MS
         const timer = setTimeout(() => {
+            this.sweepExpiredPeerLeaves()
+        }, PEER_LEAVE_GRACE_MS)
+
+        this.pendingPeerLeaves.set(peerId, { deadline, timer })
+        // Notify subscribers so lobby start eligibility updates while the phantom is still listed.
+        this.publishPendingLeaves()
+    }
+
+    private sweepExpiredPeerLeaves(): void {
+        if (this.pendingPeerLeaves.size === 0) return
+
+        const now = Date.now()
+        const expired: string[] = []
+
+        for (const [peerId, entry] of this.pendingPeerLeaves) {
+            if (now >= entry.deadline) expired.push(peerId)
+        }
+
+        for (const peerId of expired) {
+            const entry = this.pendingPeerLeaves.get(peerId)
+            if (entry) clearTimeout(entry.timer)
             this.pendingPeerLeaves.delete(peerId)
             this.finalizePeerLeft(peerId)
-        }, PEER_LEAVE_GRACE_MS)
-        this.pendingPeerLeaves.set(peerId, timer)
+        }
     }
 
     private finalizePeerLeft(peerId: string): void {
         if (!this.state) return
-        if (!this.state.players.some(player => player.id === peerId)) return
+        if (!this.state.players.some(player => player.id === peerId)) {
+            this.publishPendingLeaves()
+            return
+        }
 
         const next = this.removePlayer(this.state, peerId)
 
@@ -658,17 +798,27 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
     }
 
     private cancelPendingPeerLeave(peerId: string): void {
-        const timer = this.pendingPeerLeaves.get(peerId)
-        if (!timer) return
-        clearTimeout(timer)
+        const entry = this.pendingPeerLeaves.get(peerId)
+        if (!entry) return
+        clearTimeout(entry.timer)
         this.pendingPeerLeaves.delete(peerId)
+        this.publishPendingLeaves()
     }
 
     private clearAllPendingPeerLeaves(): void {
-        for (const timer of this.pendingPeerLeaves.values()) {
-            clearTimeout(timer)
+        for (const entry of this.pendingPeerLeaves.values()) {
+            clearTimeout(entry.timer)
         }
         this.pendingPeerLeaves.clear()
+    }
+
+    private withSuppressedPeerLeaveGrace(run: () => void): void {
+        this.suppressPeerLeaveGrace += 1
+        try {
+            run()
+        } finally {
+            this.suppressPeerLeaveGrace -= 1
+        }
     }
 
     private async connectToJoiner(peerId: string): Promise<void> {
@@ -823,7 +973,15 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             }
 
             if (connection.connectionState === "failed" || connection.connectionState === "closed") {
+                if (!this.peers.has(peerId)) return
+
+                const allowLeaveGrace = this.suppressPeerLeaveGrace === 0
                 this.teardownPeer(peerId)
+
+                // Signaling peer-left can be missed after a brief reconnect; RTC death still drops phantoms.
+                if (allowLeaveGrace) {
+                    this.schedulePeerLeaveGrace(peerId)
+                }
             }
         })
 
@@ -1110,8 +1268,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
 
         const interval = state.game.announceIntervalMs
         const startedAt = state.game.announceStartedAt
-        const delay =
-            startedAt === null ? interval : Math.max(0, startedAt + interval - Date.now())
+        const delay = startedAt === null ? interval : Math.max(0, startedAt + interval - Date.now())
 
         this.announceTimer = setTimeout(() => {
             this.announceTimer = null
@@ -1300,6 +1457,9 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         const link = this.peers.get(peerId)
         if (!link) return
 
+        // Remove first so connectionstatechange from close() cannot re-enter.
+        this.peers.delete(peerId)
+
         try {
             link.channel?.close()
         } catch {
@@ -1311,14 +1471,14 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         } catch {
             // Ignore.
         }
-
-        this.peers.delete(peerId)
     }
 
     private closeAllPeers(): void {
-        for (const peerId of [...this.peers.keys()]) {
-            this.teardownPeer(peerId)
-        }
+        this.withSuppressedPeerLeaveGrace(() => {
+            for (const peerId of [...this.peers.keys()]) {
+                this.teardownPeer(peerId)
+            }
+        })
     }
 
     private clearCountdownTimer(): void {

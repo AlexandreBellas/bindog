@@ -67,12 +67,16 @@ export default abstract class BaseWebRtcService {
 
     /**
      * Returns whether the local player may start the game from lobby state.
+     * Peers listed in `pendingLeavePeerIds` do not count toward the minimum.
      */
     protected evaluateCanStartGame(state: IRoomState): boolean {
         if (state.phase !== RoomPhase.Lobby) return false
-        if (state.players.length < 2) return false
 
-        const local = state.players.find(player => player.id === state.localPlayerId)
+        const pendingLeaves = new Set(state.pendingLeavePeerIds ?? [])
+        const activePlayers = state.players.filter(player => !pendingLeaves.has(player.id))
+        if (activePlayers.length < 2) return false
+
+        const local = activePlayers.find(player => player.id === state.localPlayerId)
         return Boolean(local?.isLeader)
     }
 

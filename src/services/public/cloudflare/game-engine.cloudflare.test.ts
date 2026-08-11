@@ -5,7 +5,7 @@ import { ANNOUNCE_INTERVAL_MS } from "#/constants/announce"
 import { WILD_CELL_INDEX } from "#/constants/breeds"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import GameEngineCloudflare from "./game-engine.cloudflare"
-import { clearRoomSession, loadRoomSession, PEER_LEAVE_GRACE_MS, saveRoomSession } from "./room-session"
+import { clearRoomSession, loadRoomSession, PEER_LEAVE_GRACE_MS, saveRoomSession, SIGNALING_CONNECT_TIMEOUT_MS, SIGNALING_RECONNECT_DELAY_MS } from "./room-session"
 
 class MockWebSocket {
     static OPEN = 1
@@ -99,8 +99,15 @@ class MockRTCPeerConnection {
         this.listeners.set(type, set)
     }
 
+    public emit(type: string): void {
+        for (const listener of this.listeners.get(type) ?? []) {
+            listener()
+        }
+    }
+
     public close(): void {
         this.connectionState = "closed"
+        this.emit("connectionstatechange")
     }
 }
 
@@ -635,12 +642,8 @@ describe("GameEngineCloudflare", () => {
             })
         )
 
-        expect(engine.getState()?.players.map(player => player.id).sort()).toEqual(
-            [leaderId, "joiner-1"].sort()
-        )
-        expect(engine.getState()?.abandoned).toBe(false)
-
         await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
+        engine.canStartGame()
 
         const state = engine.getState()
         expect(state?.players.map(player => player.id)).toEqual([leaderId])
@@ -667,6 +670,7 @@ describe("GameEngineCloudflare", () => {
         )
 
         await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
+        engine.canStartGame()
 
         const state = engine.getState()
         expect(state?.players.map(player => player.id)).toEqual([leaderId])
@@ -695,6 +699,7 @@ describe("GameEngineCloudflare", () => {
         )
 
         await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
+        engine.canStartGame()
 
         const state = engine.getState()
         expect(state?.players.map(player => player.id)).toEqual([leaderId])
@@ -703,6 +708,304 @@ describe("GameEngineCloudflare", () => {
         expect(state?.countdown).toBeNull()
 
         await engine.dispose()
+    })
+
+    describe("leave grace and phantom peers", () => {
+        function emitPeerLeft(engine: GameEngineCloudflare, peerId = "joiner-1", newLeaderId: string | null = null) {
+            const socket = (engine as unknown as EngineInternals).signalingSocket!
+            socket.emit(
+                "message",
+                JSON.stringify({
+                    type: "peer-left",
+                    peerId,
+                    newLeaderId
+                })
+            )
+        }
+
+        function emitPeerJoined(
+            engine: GameEngineCloudflare,
+            peer: { id: string; nickname: string; isLeader: boolean } = {
+                id: "joiner-1",
+                nickname: "Beta",
+                isLeader: false
+            }
+        ) {
+            const socket = (engine as unknown as EngineInternals).signalingSocket!
+            socket.emit(
+                "message",
+                JSON.stringify({
+                    type: "peer-joined",
+                    peer
+                })
+            )
+        }
+
+        it("keeps the peer listed during grace but excludes them from start eligibility", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+            expect(engine.canStartGame()).toBe(true)
+
+            emitPeerLeft(engine)
+
+            expect(engine.getState()?.players.map(player => player.id).sort()).toEqual(
+                [leaderId, "joiner-1"].sort()
+            )
+            expect(engine.canStartGame()).toBe(false)
+            expect(() => engine.send({ type: GameEngineMessageType.StartGame })).toThrow(/two players/i)
+
+            await engine.dispose()
+        })
+
+        it("removes the phantom peer from the roster when leave grace elapses", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+            const snapshots: Array<string[] | null> = []
+            const unsubscribe = engine.subscribe(state => {
+                snapshots.push(state?.players.map(player => player.id) ?? null)
+            })
+
+            emitPeerLeft(engine)
+            await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
+
+            expect(engine.getState()?.players.map(player => player.id)).toEqual([leaderId])
+            expect(snapshots.at(-1)).toEqual([leaderId])
+            expect(engine.canStartGame()).toBe(false)
+
+            unsubscribe()
+            await engine.dispose()
+        })
+
+        it("sweeps expired leave grace via canStartGame when the timer was throttled", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+
+            emitPeerLeft(engine)
+            expect(engine.getState()?.players).toHaveLength(2)
+
+            // Deadline passed without the setTimeout callback running (background-tab throttling).
+            vi.setSystemTime(Date.now() + PEER_LEAVE_GRACE_MS + 50)
+            expect(engine.canStartGame()).toBe(false)
+            expect(engine.getState()?.players.map(player => player.id)).toEqual([leaderId])
+
+            await engine.dispose()
+        })
+
+        it("sweeps expired leave grace when the tab becomes visible again", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+
+            emitPeerLeft(engine)
+            vi.setSystemTime(Date.now() + PEER_LEAVE_GRACE_MS + 50)
+
+            Object.defineProperty(document, "visibilityState", {
+                configurable: true,
+                get: () => "visible"
+            })
+            document.dispatchEvent(new Event("visibilitychange"))
+
+            expect(engine.getState()?.players.map(player => player.id)).toEqual([leaderId])
+
+            await engine.dispose()
+        })
+
+        it("starts leave grace when the WebRTC connection fails", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+            const peerConnection = (engine as unknown as EngineInternals).peers.get("joiner-1")?.connection
+            expect(peerConnection).toBeTruthy()
+
+            peerConnection!.connectionState = "failed"
+            peerConnection!.emit("connectionstatechange")
+
+            expect(engine.getState()?.players.map(player => player.id).sort()).toEqual(
+                [leaderId, "joiner-1"].sort()
+            )
+            expect(engine.canStartGame()).toBe(false)
+
+            await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
+
+            expect(engine.getState()?.players.map(player => player.id)).toEqual([leaderId])
+
+            await engine.dispose()
+        })
+
+        it("starts leave grace when the WebRTC connection closes unexpectedly", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+            const peerConnection = (engine as unknown as EngineInternals).peers.get("joiner-1")?.connection
+            expect(peerConnection).toBeTruthy()
+
+            peerConnection!.connectionState = "closed"
+            peerConnection!.emit("connectionstatechange")
+
+            expect(engine.canStartGame()).toBe(false)
+
+            await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
+
+            expect(engine.getState()?.players.map(player => player.id)).toEqual([leaderId])
+
+            await engine.dispose()
+        })
+
+        it("cancels leave grace when the same peer rejoins before the deadline", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+
+            emitPeerLeft(engine)
+            expect(engine.canStartGame()).toBe(false)
+
+            emitPeerJoined(engine)
+            expect(engine.canStartGame()).toBe(true)
+
+            await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
+
+            expect(engine.getState()?.players.map(player => player.id).sort()).toEqual(
+                [leaderId, "joiner-1"].sort()
+            )
+            expect(engine.canStartGame()).toBe(true)
+            expect(engine.getState()?.phase).toBe(RoomPhase.Lobby)
+
+            await engine.dispose()
+        })
+
+        it("does not drop a rejoining peer because RTC teardown during peer-joined is suppressed", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+
+            emitPeerLeft(engine)
+            emitPeerJoined(engine)
+
+            // peer-joined tears down the old RTC link under suppress; that close must not re-arm grace.
+            await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
+
+            expect(engine.getState()?.players.map(player => player.id).sort()).toEqual(
+                [leaderId, "joiner-1"].sort()
+            )
+            expect(engine.canStartGame()).toBe(true)
+
+            await engine.dispose()
+        })
+
+        it("re-arms leave grace if the rejoined peer's RTC fails again", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+
+            emitPeerLeft(engine)
+            emitPeerJoined(engine)
+
+            const peerConnection = (engine as unknown as EngineInternals).peers.get("joiner-1")?.connection
+            expect(peerConnection).toBeTruthy()
+
+            peerConnection!.connectionState = "failed"
+            peerConnection!.emit("connectionstatechange")
+
+            expect(engine.canStartGame()).toBe(false)
+
+            await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
+
+            expect(engine.getState()?.players.map(player => player.id)).toEqual([leaderId])
+
+            await engine.dispose()
+        })
+
+        it("applies leadership immediately on peer-left while deferring roster removal", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+
+            // Pretend we were a joiner and the old leader left.
+            const internals = engine as unknown as EngineInternals
+            internals.state = {
+                ...internals.state!,
+                players: [
+                    { id: leaderId, nickname: "Alpha", isLeader: false },
+                    { id: "old-leader", nickname: "Boss", isLeader: true }
+                ],
+                pendingLeavePeerIds: []
+            }
+            ;(engine as unknown as { isLeader: boolean }).isLeader = false
+
+            emitPeerLeft(engine, "old-leader", leaderId)
+
+            const duringGrace = engine.getState()
+            expect(duringGrace?.players).toHaveLength(2)
+            expect(duringGrace?.players.find(player => player.id === leaderId)?.isLeader).toBe(true)
+            expect(duringGrace?.pendingLeavePeerIds).toEqual(["old-leader"])
+            expect(engine.canStartGame()).toBe(false)
+
+            await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
+
+            expect(engine.getState()?.players.map(player => player.id)).toEqual([leaderId])
+            expect(engine.getState()?.players[0]?.isLeader).toBe(true)
+            expect(engine.getState()?.pendingLeavePeerIds).toEqual([])
+
+            await engine.dispose()
+        })
+
+        it("re-enables start for the promoted leader once the old leader rejoins", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const localId = await connectLeaderWithJoiner(engine)
+
+            // Survivor starts as joiner; reloading peer was the leader.
+            const internals = engine as unknown as EngineInternals
+            internals.state = {
+                ...internals.state!,
+                players: [
+                    { id: localId, nickname: "Alpha", isLeader: false },
+                    { id: "old-leader", nickname: "Boss", isLeader: true }
+                ],
+                pendingLeavePeerIds: []
+            }
+            ;(engine as unknown as { isLeader: boolean }).isLeader = false
+
+            const startEligibility: boolean[] = []
+            const unsubscribe = engine.subscribe(state => {
+                if (!state) return
+                const pending = new Set(state.pendingLeavePeerIds)
+                const activeCount = state.players.filter(player => !pending.has(player.id)).length
+                const localIsLeader = Boolean(state.players.find(player => player.id === state.localPlayerId)?.isLeader)
+                startEligibility.push(localIsLeader && state.phase === RoomPhase.Lobby && activeCount >= 2)
+            })
+
+            emitPeerLeft(engine, "old-leader", localId)
+
+            expect(engine.getState()?.players.find(player => player.id === localId)?.isLeader).toBe(true)
+            expect(engine.getState()?.pendingLeavePeerIds).toEqual(["old-leader"])
+            expect(engine.canStartGame()).toBe(false)
+            expect(startEligibility.at(-1)).toBe(false)
+
+            emitPeerJoined(engine, { id: "old-leader", nickname: "Boss", isLeader: false })
+
+            expect(engine.getState()?.pendingLeavePeerIds).toEqual([])
+            expect(engine.getState()?.players.find(player => player.id === localId)?.isLeader).toBe(true)
+            expect(engine.canStartGame()).toBe(true)
+            expect(startEligibility.at(-1)).toBe(true)
+
+            unsubscribe()
+            await engine.dispose()
+        })
     })
 
     it("persists the room session and restores it after disconnect teardown", async () => {
@@ -722,39 +1025,18 @@ describe("GameEngineCloudflare", () => {
         await engine.dispose()
     })
 
-    it("cancels peer-left grace when the same peer rejoins", async () => {
-        vi.useFakeTimers()
-
+    it("keeps the persisted session across dispose so a reload can rejoin", async () => {
         const engine = new GameEngineCloudflare()
-        const leaderId = await connectLeaderWithJoiner(engine)
-        await startPlaying(engine)
-
-        const socket = (engine as unknown as EngineInternals).signalingSocket!
-        socket.emit(
-            "message",
-            JSON.stringify({
-                type: "peer-left",
-                peerId: "joiner-1",
-                newLeaderId: null
-            })
-        )
-
-        socket.emit(
-            "message",
-            JSON.stringify({
-                type: "peer-joined",
-                peer: { id: "joiner-1", nickname: "Beta", isLeader: false }
-            })
-        )
-
-        await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
-
-        const state = engine.getState()
-        expect(state?.players.map(player => player.id).sort()).toEqual([leaderId, "joiner-1"].sort())
-        expect(state?.phase).toBe(RoomPhase.Playing)
-        expect(state?.abandoned).toBe(false)
+        const peerId = await connectLeaderWithJoiner(engine)
 
         await engine.dispose()
+
+        expect(loadRoomSession()).toEqual({
+            roomCode: "ABCDEF",
+            nickname: "Alpha",
+            peerId
+        })
+        expect(engine.getState()).toBeNull()
     })
 
     it("restoreSession rejoins using the persisted peer id", async () => {
@@ -763,9 +1045,8 @@ describe("GameEngineCloudflare", () => {
         expect(loadRoomSession()?.peerId).toBe(peerId)
 
         // Simulate a full page reload: in-memory engine is gone, localStorage remains.
-        const session = loadRoomSession()!
         await first.dispose()
-        saveRoomSession(session)
+        expect(loadRoomSession()?.peerId).toBe(peerId)
 
         const second = new GameEngineCloudflare()
         const restorePromise = second.restoreSession()
@@ -801,7 +1082,193 @@ describe("GameEngineCloudflare", () => {
         expect(restored?.code).toBe("ABCDEF")
         expect(restored?.localPlayerId).toBe(peerId)
         expect(second.getState()?.players[0]?.isLeader).toBe(true)
+        expect(loadRoomSession()?.peerId).toBe(peerId)
 
         await second.dispose()
+    })
+
+    it("keeps the persisted session when restore fails for a transient signaling error", async () => {
+        vi.useFakeTimers()
+
+        saveRoomSession({ roomCode: "ABCDEF", nickname: "Alpha", peerId: "peer-reload" })
+
+        const engine = new GameEngineCloudflare()
+        const restorePromise = engine.restoreSession()
+        const restoreResult = restorePromise.then(
+            state => ({ ok: true as const, state }),
+            error => ({ ok: false as const, error })
+        )
+
+        await vi.waitFor(() => {
+            const socket = (engine as unknown as EngineInternals).signalingSocket
+            expect(socket?.readyState).toBe(MockWebSocket.OPEN)
+        })
+
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
+        socket.close()
+
+        const result = await restoreResult
+        expect(result.ok).toBe(true)
+        if (result.ok) expect(result.state).toBeNull()
+        expect(loadRoomSession()).toEqual({
+            roomCode: "ABCDEF",
+            nickname: "Alpha",
+            peerId: "peer-reload"
+        })
+
+        await vi.advanceTimersByTimeAsync(SIGNALING_RECONNECT_DELAY_MS)
+
+        await vi.waitFor(() => {
+            const next = (engine as unknown as EngineInternals).signalingSocket
+            expect(next).not.toBeNull()
+            expect(next).not.toBe(socket)
+            expect(next?.readyState).toBe(MockWebSocket.OPEN)
+        })
+
+        await engine.dispose()
+    })
+
+    it("clears the persisted session when restore finds the room is gone", async () => {
+        saveRoomSession({ roomCode: "ABCDEF", nickname: "Alpha", peerId: "peer-gone" })
+
+        globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input)
+
+            if (url.endsWith("/turn/credentials") && init?.method === "POST") {
+                return Response.json({ iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] })
+            }
+
+            if (url.includes("/rooms/")) {
+                return new Response("gone", { status: 404 })
+            }
+
+            return new Response("not found", { status: 404 })
+        }) as typeof fetch
+
+        const engine = new GameEngineCloudflare()
+        await expect(engine.restoreSession()).resolves.toBeNull()
+        expect(loadRoomSession()).toBeNull()
+
+        await engine.dispose()
+    })
+
+    it("rejects connect when the signaling socket closes before join completes", async () => {
+        const engine = new GameEngineCloudflare()
+        const connectPromise = engine.connect({
+            role: ConnectRole.Joiner,
+            roomCode: "ABCDEF",
+            nickname: "Mobile"
+        })
+
+        await vi.waitFor(() => {
+            const socket = (engine as unknown as EngineInternals).signalingSocket
+            expect(socket?.readyState).toBe(MockWebSocket.OPEN)
+        })
+
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
+        socket.close()
+
+        await expect(connectPromise).rejects.toThrow(/connection closed/i)
+        expect(engine.getState()).toBeNull()
+        expect(loadRoomSession()).toBeNull()
+
+        await engine.dispose()
+    })
+
+    it("rejects connect when the signaling join handshake times out", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const connectPromise = engine.connect({
+            role: ConnectRole.Joiner,
+            roomCode: "ABCDEF",
+            nickname: "Mobile"
+        })
+        // Attach early so fake-timer rejection is not reported as unhandled.
+        const connectResult = connectPromise.then(
+            state => ({ ok: true as const, state }),
+            error => ({ ok: false as const, error })
+        )
+
+        await vi.waitFor(() => {
+            const socket = (engine as unknown as EngineInternals).signalingSocket
+            expect(socket?.readyState).toBe(MockWebSocket.OPEN)
+        })
+
+        await vi.advanceTimersByTimeAsync(SIGNALING_CONNECT_TIMEOUT_MS)
+
+        const result = await connectResult
+        expect(result.ok).toBe(false)
+        if (!result.ok) {
+            expect(String(result.error)).toMatch(/timed out/i)
+        }
+        expect(engine.getState()).toBeNull()
+
+        await engine.dispose()
+    })
+
+    it("auto-reconnects signaling after an unexpected socket close using the persisted session", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const peerId = await connectLeaderWithJoiner(engine)
+        const firstSocket = (engine as unknown as EngineInternals).signalingSocket!
+        expect(loadRoomSession()?.peerId).toBe(peerId)
+
+        firstSocket.close()
+        expect((engine as unknown as EngineInternals).signalingSocket).toBeNull()
+        expect(engine.getState()?.code).toBe("ABCDEF")
+
+        await vi.advanceTimersByTimeAsync(SIGNALING_RECONNECT_DELAY_MS)
+
+        await vi.waitFor(() => {
+            const socket = (engine as unknown as EngineInternals).signalingSocket
+            expect(socket).not.toBeNull()
+            expect(socket).not.toBe(firstSocket)
+            expect(socket?.readyState).toBe(MockWebSocket.OPEN)
+        })
+
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
+        const joinPayload = JSON.parse(socket.sent[0] as string) as { peerId: string; role: string }
+        expect(joinPayload.peerId).toBe(peerId)
+        expect(joinPayload.role).toBe(ConnectRole.Joiner)
+
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "joined",
+                peerId,
+                roomCode: "ABCDEF",
+                roomName: "Pup pack",
+                peers: [
+                    { id: peerId, nickname: "Alpha", isLeader: true },
+                    { id: "joiner-1", nickname: "Beta", isLeader: false }
+                ]
+            })
+        )
+
+        await vi.waitFor(() => {
+            expect(engine.getState()?.players).toHaveLength(2)
+        })
+
+        await engine.dispose()
+    })
+
+    it("re-persists the room session on pagehide so reloads keep the room", async () => {
+        const engine = new GameEngineCloudflare()
+        const peerId = await connectLeaderWithJoiner(engine)
+
+        clearRoomSession()
+        expect(loadRoomSession()).toBeNull()
+
+        window.dispatchEvent(new Event("pagehide"))
+
+        expect(loadRoomSession()).toEqual({
+            roomCode: "ABCDEF",
+            nickname: "Alpha",
+            peerId
+        })
+
+        await engine.dispose()
     })
 })

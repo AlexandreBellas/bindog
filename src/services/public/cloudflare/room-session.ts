@@ -20,6 +20,11 @@ export const PEER_LEAVE_GRACE_MS = 120_000
 export const SIGNALING_RECONNECT_DELAY_MS = 400
 
 /**
+ * Max time to wait for the signaling socket to finish the join handshake.
+ */
+export const SIGNALING_CONNECT_TIMEOUT_MS = 12_000
+
+/**
  * Reads a persisted room session from localStorage, if valid.
  */
 export function loadRoomSession(): IRoomSession | null {

@@ -10,6 +10,10 @@ export default interface IGameEngineGateway {
      */
     restoreSession: () => Promise<IRoomState | null>
     disconnect: () => Promise<void>
+    /**
+     * Tears down in-memory sockets without leaving the room or clearing localStorage.
+     * Use for process shutdown / tests that simulate a full page reload.
+     */
     dispose: () => void
     send: (message: IGameEngineMessage) => void
     subscribe: (listener: IRoomStateListener) => () => void
