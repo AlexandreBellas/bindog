@@ -5,7 +5,9 @@ import RoomCodeCopy from "#/components/RoomCodeCopy"
 import { ANNOUNCE_INTERVAL_MS } from "#/constants/announce"
 import { m } from "#/paraglide/messages"
 import { createInitialMarks, isBingoReady } from "#/services/base/utils/bingo"
+import { isPlayerDisqualified } from "#/services/base/utils/bingo-claim"
 import { buildLeaderboard, isSittingOutRound } from "#/services/base/utils/leaderboard"
+import { createDefaultRoomSettings } from "#/services/base/utils/room-settings"
 import { loadRoomSession } from "#/services/public/cloudflare/room-session"
 import gameEngine from "#/services/public/game-engine"
 import { useNavigate } from "@tanstack/react-router"
@@ -13,9 +15,9 @@ import { useEffect, useMemo, useState } from "react"
 import BingoBoard from "./components/BingoBoard"
 import BingoButton from "./components/BingoButton"
 import BreedAnnouncement from "./components/BreedAnnouncement"
-import FakeBingoBanner from "./components/FakeBingoBanner"
 import GameResults from "./components/GameResults"
 import PlayersLeftAlert from "./components/PlayersLeftAlert"
+import RoundAlertBanner from "./components/RoundAlertBanner"
 import WaitingForNextRound from "./components/WaitingForNextRound"
 
 export default function Game() {
@@ -33,6 +35,9 @@ export default function Game() {
     }
     const handleRestart = () => {
         gameEngine.send({ type: GameEngineMessageType.RestartGame })
+    }
+    const handleSettingsChange = (settings: IRoomState["settings"]) => {
+        gameEngine.send({ type: GameEngineMessageType.UpdateSettings, settings })
     }
     // #endregion
 
@@ -110,10 +115,21 @@ export default function Game() {
     const board = game?.boards[room.localPlayerId] ?? null
     const localPlayer = room.players.find(player => player.id === room.localPlayerId)
     const isLeader = Boolean(localPlayer?.isLeader)
-    const bingoReady = isBingoReady(marks)
+    const settings = room.settings ?? createDefaultRoomSettings()
+    const disqualified = isPlayerDisqualified(game?.disqualifiedPlayerIds, room.localPlayerId)
+    const bingoReady = !disqualified && isBingoReady(marks, settings.fullGridBingo)
     const fakePlayer = game?.fakeBingoPlayerId
         ? room.players.find(player => player.id === game.fakeBingoPlayerId)
         : null
+    const disqualifiedOther =
+        game?.disqualifiedPlayerId && game.disqualifiedPlayerId !== room.localPlayerId
+            ? room.players.find(player => player.id === game.disqualifiedPlayerId)
+            : null
+    const roundAlert = disqualifiedOther
+        ? m.game_disqualified({ name: disqualifiedOther.nickname })
+        : fakePlayer
+          ? m.game_fake_bingo({ name: fakePlayer.nickname })
+          : null
     const winner = game?.winnerId ? room.players.find(player => player.id === game.winnerId) : null
     const sittingOut = isSittingOutRound(room.phase, room.localPlayerId, game?.boards)
     const leaderboard = buildLeaderboard(room.players, room.wins)
@@ -149,13 +165,19 @@ export default function Game() {
                             breedId={game?.currentBreedId ?? null}
                             announceStartedAt={game?.announceStartedAt ?? null}
                             announceIntervalMs={game?.announceIntervalMs ?? ANNOUNCE_INTERVAL_MS}
+                            hardMode={settings.hardMode}
                             className="h-full max-h-full"
                         />
                     </div>
-                    <FakeBingoBanner playerName={fakePlayer?.nickname ?? null} />
+                    <RoundAlertBanner message={roundAlert} />
 
                     <div className="@container-size flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
-                        {board ? (
+                        {disqualified && board ? (
+                            <WaitingForNextRound
+                                title={m.game_disqualified_self()}
+                                hint={m.game_disqualified_self_hint()}
+                            />
+                        ) : board ? (
                             <BingoBoard board={board} marks={marks} onToggle={handleToggleMark} />
                         ) : sittingOut ? (
                             <WaitingForNextRound />
@@ -168,8 +190,16 @@ export default function Game() {
                 </div>
 
                 <div className="flex shrink-0 flex-col gap-3">
-                    {room.phase === RoomPhase.Playing && board ? (
-                        <BingoButton ready={bingoReady} onClaim={handleClaimBingo} />
+                    {room.phase === RoomPhase.Playing && board && !disqualified ? (
+                        <BingoButton
+                            ready={bingoReady}
+                            onClaim={handleClaimBingo}
+                            hint={
+                                settings.fullGridBingo
+                                    ? m.game_bingo_disabled_hint_full_grid()
+                                    : m.game_bingo_disabled_hint()
+                            }
+                        />
                     ) : null}
                     <LeaveGameButton
                         onConfirm={handleLeave}
@@ -187,6 +217,8 @@ export default function Game() {
                     roomCode={room.code}
                     localPlayerId={room.localPlayerId}
                     isLeader={isLeader}
+                    settings={settings}
+                    onSettingsChange={handleSettingsChange}
                     onRestart={handleRestart}
                 />
             ) : null}

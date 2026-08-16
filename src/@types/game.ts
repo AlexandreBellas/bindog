@@ -10,20 +10,21 @@ export interface IBreed {
     imageSrc: string
 }
 
-export const progressLineKinds = ["row", "col"] as const
+export const progressLineKinds = ["row", "col", "grid"] as const
 
 export type IProgressLineKind = (typeof progressLineKinds)[number]
 
 export const ProgressLineKind = {
     Row: "row",
-    Col: "col"
+    Col: "col",
+    Grid: "grid"
 } as const satisfies Record<IKeyable<IProgressLineKind>, IProgressLineKind>
 
 export interface ILineProgress {
     kind: IProgressLineKind
     index: number
     filled: number
-    total: 5
+    total: number
 }
 
 export interface IPlayerProgress extends ILineProgress {
@@ -44,6 +45,12 @@ export interface IGameState {
     winnerId: string | null
     /** Transient fake-claim marker; cleared on the next announce. */
     fakeBingoPlayerId: string | null
+    /** Incorrect Bindog claims this round, keyed by player id. */
+    incorrectBindogCounts: Record<string, number>
+    /** Players who hit the incorrect-claim cap and are out until the next round. */
+    disqualifiedPlayerIds: string[]
+    /** Transient disqualification marker; cleared on the next announce. */
+    disqualifiedPlayerId: string | null
     /** Filled when the round ends. */
     progress: IPlayerProgress[] | null
 }

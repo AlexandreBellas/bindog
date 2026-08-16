@@ -2,8 +2,10 @@ import type { IRoomState } from "#/@types/room"
 import { GameEngineMessageType, RoomPhase } from "#/@types/room"
 import LeaveGameButton from "#/components/LeaveGameButton"
 import RoomCodeCopy from "#/components/RoomCodeCopy"
+import RoomGameSettings from "#/components/RoomGameSettings"
 import { Button } from "#/components/ui/button"
 import { m } from "#/paraglide/messages"
+import { createDefaultRoomSettings } from "#/services/base/utils/room-settings"
 import { loadRoomSession } from "#/services/public/cloudflare/room-session"
 import gameEngine from "#/services/public/game-engine"
 import { useNavigate } from "@tanstack/react-router"
@@ -17,6 +19,12 @@ export default function Matchmaking() {
     const handleLeave = async () => {
         await gameEngine.disconnect()
         await navigate({ to: "/" })
+    }
+    // #endregion
+
+    // #region Custom hooks
+    const handleSettingsChange = (settings: IRoomState["settings"]) => {
+        gameEngine.send({ type: GameEngineMessageType.UpdateSettings, settings })
     }
     // #endregion
 
@@ -101,6 +109,11 @@ export default function Matchmaking() {
                 </section>
 
                 <div className="flex flex-col gap-3">
+                    <RoomGameSettings
+                        settings={room.settings ?? createDefaultRoomSettings()}
+                        editable={isLeader && room.phase === RoomPhase.Lobby}
+                        onChange={handleSettingsChange}
+                    />
                     {isLeader ? (
                         <Button
                             type="button"

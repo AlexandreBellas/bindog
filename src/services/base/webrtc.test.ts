@@ -86,6 +86,11 @@ function makeState(overrides: Partial<IRoomState> = {}): IRoomState {
             "leader-1": 0,
             "joiner-1": 0
         },
+        settings: {
+            fullGridBingo: false,
+            hardMode: false,
+            limitIncorrectBindogs: false
+        },
         ...overrides
     }
 }
@@ -259,7 +264,29 @@ describe("parseDataChannelMessage", () => {
                 game: null,
                 wins: { "1": 2 }
             })
-        ).toMatchObject({ type: DataChannelMessageType.Sync, code: "ABCDEF", game: null, wins: { "1": 2 } })
+        ).toMatchObject({
+            type: DataChannelMessageType.Sync,
+            code: "ABCDEF",
+            game: null,
+            wins: { "1": 2 },
+            settings: { fullGridBingo: false, hardMode: false, limitIncorrectBindogs: false }
+        })
+
+        expect(
+            service.parseDataChannelMessage({
+                type: DataChannelMessageType.Sync,
+                code: "ABCDEF",
+                name: "Room",
+                players: [{ id: "1", nickname: "A", isLeader: true }],
+                phase: "lobby",
+                countdown: null,
+                game: null,
+                wins: { "1": 2 },
+                settings: { fullGridBingo: true, hardMode: true, limitIncorrectBindogs: true }
+            })
+        ).toMatchObject({
+            settings: { fullGridBingo: true, hardMode: true, limitIncorrectBindogs: true }
+        })
 
         expect(service.parseDataChannelMessage({ type: DataChannelMessageType.Countdown, value: 2 })).toEqual({
             type: DataChannelMessageType.Countdown,
@@ -314,7 +341,21 @@ describe("parseDataChannelMessage", () => {
                 type: DataChannelMessageType.FakeBingo,
                 playerId: "1"
             })
-        ).toEqual({ type: DataChannelMessageType.FakeBingo, playerId: "1" })
+        ).toEqual({ type: DataChannelMessageType.FakeBingo, playerId: "1", incorrectBindogCounts: {} })
+
+        expect(
+            service.parseDataChannelMessage({
+                type: DataChannelMessageType.PlayerDisqualified,
+                playerId: "1",
+                incorrectBindogCounts: { "1": 3 },
+                disqualifiedPlayerIds: ["1"]
+            })
+        ).toEqual({
+            type: DataChannelMessageType.PlayerDisqualified,
+            playerId: "1",
+            incorrectBindogCounts: { "1": 3 },
+            disqualifiedPlayerIds: ["1"]
+        })
 
         expect(
             service.parseDataChannelMessage({

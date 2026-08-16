@@ -1,34 +1,33 @@
 import { cn } from "#/lib/utils.ts"
-import { m } from "#/paraglide/messages"
 import { useEffect, useState } from "react"
 
-interface IFakeBingoBannerProps {
-    playerName: string | null
+interface IRoundAlertBannerProps {
+    message: string | null
 }
 
-export default function FakeBingoBanner({ playerName }: Readonly<IFakeBingoBannerProps>) {
+export default function RoundAlertBanner({ message }: Readonly<IRoundAlertBannerProps>) {
     // #region States
-    const [visibleName, setVisibleName] = useState<string | null>(null)
+    const [visibleMessage, setVisibleMessage] = useState<string | null>(null)
     const [isVisible, setIsVisible] = useState(false)
     // #endregion
 
     // #region Effects
     /**
-     * Show a short-lived banner whenever a fake bingo claim arrives.
+     * Show a short-lived banner whenever a round alert arrives.
      * Clear immediately when the claim is wiped (e.g. game restart).
      * Space stays reserved via invisible/visible so the board does not jump.
      */
     useEffect(() => {
-        if (!playerName) {
+        if (!message) {
             setIsVisible(false)
             return
         }
 
-        setVisibleName(playerName)
+        setVisibleMessage(message)
         setIsVisible(true)
         const id = window.setTimeout(() => setIsVisible(false), 10_000)
         return () => window.clearTimeout(id)
-    }, [playerName])
+    }, [message])
     // #endregion
 
     return (
@@ -40,7 +39,7 @@ export default function FakeBingoBanner({ playerName }: Readonly<IFakeBingoBanne
                 isVisible ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"
             )}
         >
-            {m.game_fake_bingo({ name: visibleName ?? "…" })}
+            {visibleMessage ?? "…"}
         </div>
     )
 }

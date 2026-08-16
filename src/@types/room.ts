@@ -27,6 +27,15 @@ export interface IRoomPlayer {
     isLeader: boolean
 }
 
+export interface IRoomSettings {
+    /** When true, bingo requires the full 5×5 card instead of a row or column. */
+    fullGridBingo: boolean
+    /** When true, the announcement shows the breed name only (no picture). */
+    hardMode: boolean
+    /** When true, a third incorrect Bindog claim disqualifies the player for the round. */
+    limitIncorrectBindogs: boolean
+}
+
 export interface IRoomState {
     code: string
     name: string
@@ -35,6 +44,7 @@ export interface IRoomState {
     countdown: number | null
     localPlayerId: string
     game: IGameState | null
+    settings: IRoomSettings
     /** True when the round was cut short because every other player left. */
     abandoned: boolean
     /**
@@ -63,14 +73,15 @@ export interface IConnectAsJoiner {
 
 export type IConnectInput = IConnectAsLeader | IConnectAsJoiner
 
-export const gameEngineMessageTypes = ["start-game", "claim-bingo", "restart-game"] as const
+export const gameEngineMessageTypes = ["start-game", "claim-bingo", "restart-game", "update-settings"] as const
 
 export type IGameEngineMessageType = (typeof gameEngineMessageTypes)[number]
 
 export const GameEngineMessageType = {
     StartGame: "start-game",
     ClaimBingo: "claim-bingo",
-    RestartGame: "restart-game"
+    RestartGame: "restart-game",
+    UpdateSettings: "update-settings"
 } as const satisfies Record<IKeyable<IGameEngineMessageType>, IGameEngineMessageType>
 
 export interface IStartGameMessage {
@@ -85,4 +96,9 @@ export interface IRestartGameMessage {
     type: typeof GameEngineMessageType.RestartGame
 }
 
-export type IGameEngineMessage = IStartGameMessage | IClaimBingoMessage | IRestartGameMessage
+export interface IUpdateSettingsMessage {
+    type: typeof GameEngineMessageType.UpdateSettings
+    settings: IRoomSettings
+}
+
+export type IGameEngineMessage = IStartGameMessage | IClaimBingoMessage | IRestartGameMessage | IUpdateSettingsMessage

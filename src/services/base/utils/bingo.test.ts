@@ -2,6 +2,7 @@ import type { IBingoBoard } from "#/@types/game"
 import { WILD_CELL_INDEX } from "#/constants/breeds"
 import { describe, expect, it } from "vitest"
 import {
+    bestBingoProgress,
     bestLineProgress,
     createInitialMarks,
     dealAllBoards,
@@ -72,6 +73,15 @@ describe("isBingoReady", () => {
         for (let row = 0; row < 5; row += 1) columnMarks[row * 5 + 2] = true
         expect(isBingoReady(columnMarks)).toBe(true)
     })
+
+    it("requires every cell marked when full-grid bingo is on", () => {
+        const marks = createInitialMarks()
+        for (let col = 0; col < 5; col += 1) marks[2 * 5 + col] = true
+        expect(isBingoReady(marks, true)).toBe(false)
+
+        const fullMarks = Array.from({ length: 25 }, () => true)
+        expect(isBingoReady(fullMarks, true)).toBe(true)
+    })
 })
 
 describe("isLegitimateBingo", () => {
@@ -116,6 +126,16 @@ describe("isLegitimateBingo", () => {
     it("accepts a full column", () => {
         expect(isLegitimateBingo(board, ["a", "f", "k", "o", "t"])).toBe(true)
     })
+
+    it("rejects a completed row when full-grid bingo is required", () => {
+        expect(isLegitimateBingo(board, ["k", "l", "m", "n"], true)).toBe(false)
+    })
+
+    it("accepts a fully announced card when full-grid bingo is required", () => {
+        const announced = board.cells.filter((cell): cell is string => cell !== null)
+        expect(isLegitimateBingo(board, announced, true)).toBe(true)
+        expect(isLegitimateBingo(board, announced.slice(0, -1), true)).toBe(false)
+    })
 })
 
 describe("bestLineProgress", () => {
@@ -155,6 +175,45 @@ describe("bestLineProgress", () => {
         expect(progress.total).toBe(5)
         expect(progress.kind).toBe("row")
         expect(progress.index).toBe(2)
+    })
+})
+
+describe("bestBingoProgress", () => {
+    const board: IBingoBoard = {
+        cells: [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e",
+            "f",
+            "g",
+            "h",
+            "i",
+            "j",
+            "k",
+            "l",
+            null,
+            "m",
+            "n",
+            "o",
+            "p",
+            "q",
+            "r",
+            "s",
+            "t",
+            "u",
+            "v",
+            "w",
+            "x"
+        ]
+    }
+
+    it("counts the whole card when full-grid bingo is on", () => {
+        const progress = bestBingoProgress(board, ["k", "l"], true)
+        expect(progress.kind).toBe("grid")
+        expect(progress.filled).toBe(3)
+        expect(progress.total).toBe(25)
     })
 })
 

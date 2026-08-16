@@ -69,10 +69,14 @@ export function dealAllBoards(
 }
 
 /**
- * Returns whether local marks already form a full row or column (wild pre-marked).
+ * Returns whether local marks already form a winning pattern (wild pre-marked).
  */
-export function isBingoReady(marks: readonly boolean[]): boolean {
+export function isBingoReady(marks: readonly boolean[], fullGridBingo = false): boolean {
     if (marks.length !== BINGO_CELL_COUNT) return false
+
+    if (fullGridBingo) {
+        return marks.every(Boolean)
+    }
 
     for (let row = 0; row < BINGO_BOARD_SIZE; row += 1) {
         if (isFullLine(marks, row, "row")) return true
@@ -86,10 +90,22 @@ export function isBingoReady(marks: readonly boolean[]): boolean {
 }
 
 /**
- * Returns whether any row/col on the board is fully covered by announced breeds (+ wild).
+ * Returns whether the board is fully covered by announced breeds (+ wild).
  */
-export function isLegitimateBingo(board: IBingoBoard, announcedIds: readonly string[]): boolean {
+export function isFullGridCovered(board: IBingoBoard, announcedIds: readonly string[]): boolean {
     if (board.cells.length !== BINGO_CELL_COUNT) return false
+    return countCoveredCells(board, new Set(announcedIds)) === BINGO_CELL_COUNT
+}
+
+/**
+ * Returns whether the board matches the current win condition.
+ */
+export function isLegitimateBingo(board: IBingoBoard, announcedIds: readonly string[], fullGridBingo = false): boolean {
+    if (board.cells.length !== BINGO_CELL_COUNT) return false
+
+    if (fullGridBingo) {
+        return isFullGridCovered(board, announcedIds)
+    }
 
     const announced = new Set(announcedIds)
 
@@ -105,6 +121,26 @@ export function isLegitimateBingo(board: IBingoBoard, announcedIds: readonly str
 }
 
 /**
+ * Best progress toward bingo for results display (line or full card).
+ */
+export function bestBingoProgress(
+    board: IBingoBoard,
+    announcedIds: readonly string[],
+    fullGridBingo = false
+): ILineProgress {
+    if (fullGridBingo) {
+        return {
+            kind: ProgressLineKind.Grid,
+            index: 0,
+            filled: countCoveredCells(board, new Set(announcedIds)),
+            total: BINGO_CELL_COUNT
+        }
+    }
+
+    return bestLineProgress(board, announcedIds)
+}
+
+/**
  * Best row/col progress toward bingo for leaderboard display.
  */
 export function bestLineProgress(board: IBingoBoard, announcedIds: readonly string[]): ILineProgress {
@@ -113,20 +149,20 @@ export function bestLineProgress(board: IBingoBoard, announcedIds: readonly stri
         kind: ProgressLineKind.Row,
         index: 0,
         filled: countCovered(board, announced, 0, "row"),
-        total: 5
+        total: BINGO_BOARD_SIZE
     }
 
     for (let row = 1; row < BINGO_BOARD_SIZE; row += 1) {
         const filled = countCovered(board, announced, row, "row")
         if (filled > best.filled) {
-            best = { kind: ProgressLineKind.Row, index: row, filled, total: 5 }
+            best = { kind: ProgressLineKind.Row, index: row, filled, total: BINGO_BOARD_SIZE }
         }
     }
 
     for (let col = 0; col < BINGO_BOARD_SIZE; col += 1) {
         const filled = countCovered(board, announced, col, "col")
         if (filled > best.filled) {
-            best = { kind: ProgressLineKind.Col, index: col, filled, total: 5 }
+            best = { kind: ProgressLineKind.Col, index: col, filled, total: BINGO_BOARD_SIZE }
         }
     }
 
@@ -167,14 +203,22 @@ function isCoveredLine(
 }
 
 /**
+ * Counts how many cells on the whole board are covered by announced breeds or wild.
+ */
+function countCoveredCells(board: IBingoBoard, announced: ReadonlySet<string>): number {
+    let filled = 0
+
+    for (const breedId of board.cells) {
+        if (breedId === null || (typeof breedId === "string" && announced.has(breedId))) filled += 1
+    }
+
+    return filled
+}
+
+/**
  * Counts how many cells in a row or column are covered by announced breeds or wild.
  */
-function countCovered(
-    board: IBingoBoard,
-    announced: ReadonlySet<string>,
-    index: number,
-    kind: "row" | "col"
-): number {
+function countCovered(board: IBingoBoard, announced: ReadonlySet<string>, index: number, kind: "row" | "col"): number {
     let filled = 0
 
     for (let step = 0; step < BINGO_BOARD_SIZE; step += 1) {

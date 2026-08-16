@@ -8,6 +8,7 @@ interface IBreedAnnouncementProps {
     breedId: string | null
     announceStartedAt: number | null
     announceIntervalMs: number
+    hardMode?: boolean
     className?: string
 }
 
@@ -15,6 +16,7 @@ export default function BreedAnnouncement({
     breedId,
     announceStartedAt,
     announceIntervalMs,
+    hardMode = false,
     className
 }: Readonly<IBreedAnnouncementProps>) {
     // #region Custom hooks
@@ -31,13 +33,20 @@ export default function BreedAnnouncement({
                 className
             )}
         >
-            <div className="flex aspect-square h-full max-h-14 min-h-0 w-auto shrink-0 items-center justify-center overflow-hidden rounded-lg bg-(--chip-bg) sm:size-20 sm:max-h-none sm:rounded-2xl">
-                {breed ? (
-                    <img src={breed.imageSrc} alt="" className="size-full min-h-0 object-contain p-0.5 sm:p-1" draggable={false} />
-                ) : (
-                    <span className="text-lg text-(--bark-soft) sm:text-2xl">…</span>
-                )}
-            </div>
+            {!hardMode ? (
+                <div className="flex aspect-square h-full max-h-14 min-h-0 w-auto shrink-0 items-center justify-center overflow-hidden rounded-lg bg-(--chip-bg) sm:size-20 sm:max-h-none sm:rounded-2xl">
+                    {breed ? (
+                        <img
+                            src={breed.imageSrc}
+                            alt=""
+                            className="size-full min-h-0 object-contain p-0.5 sm:p-1"
+                            draggable={false}
+                        />
+                    ) : (
+                        <span className="text-lg text-(--bark-soft) sm:text-2xl">…</span>
+                    )}
+                </div>
+            ) : null}
 
             <div className="min-h-0 min-w-0 flex-1 space-y-1 text-left sm:space-y-2">
                 <p className="m-0 text-[0.625rem] font-semibold uppercase tracking-[0.16em] text-(--kicker) sm:text-xs">

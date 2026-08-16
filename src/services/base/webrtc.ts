@@ -1,6 +1,6 @@
 import type { IBingoBoard, IGameState, IPlayerProgress, IProgressLineKind } from "#/@types/game"
 import { progressLineKinds } from "#/@types/game"
-import type { IRoomPhase, IRoomPlayer, IRoomState } from "#/@types/room"
+import type { IRoomPhase, IRoomPlayer, IRoomSettings, IRoomState } from "#/@types/room"
 import { RoomPhase, roomPhases } from "#/@types/room"
 import { ensurePlayerWins } from "#/services/base/utils/leaderboard"
 import type {
@@ -191,6 +191,9 @@ export default abstract class BaseWebRtcService {
             const wins = record.wins === undefined ? {} : this.parseWins(record.wins)
             if (!wins) return null
 
+            const settings = this.parseRoomSettings(record.settings)
+            if (!settings) return null
+
             return {
                 type: DataChannelMessageType.Sync,
                 code: record.code,
@@ -199,7 +202,8 @@ export default abstract class BaseWebRtcService {
                 phase: record.phase,
                 countdown: typeof record.countdown === "number" ? record.countdown : null,
                 game,
-                wins
+                wins,
+                settings
             }
         }
 
@@ -250,7 +254,28 @@ export default abstract class BaseWebRtcService {
 
         if (type === DataChannelMessageType.FakeBingo) {
             if (typeof record.playerId !== "string") return null
-            return { type: DataChannelMessageType.FakeBingo, playerId: record.playerId }
+            const incorrectBindogCounts =
+                record.incorrectBindogCounts === undefined ? {} : this.parseWins(record.incorrectBindogCounts)
+            if (!incorrectBindogCounts) return null
+            return {
+                type: DataChannelMessageType.FakeBingo,
+                playerId: record.playerId,
+                incorrectBindogCounts
+            }
+        }
+
+        if (type === DataChannelMessageType.PlayerDisqualified) {
+            if (typeof record.playerId !== "string") return null
+            const incorrectBindogCounts =
+                record.incorrectBindogCounts === undefined ? {} : this.parseWins(record.incorrectBindogCounts)
+            if (!incorrectBindogCounts) return null
+            if (!this.isStringArray(record.disqualifiedPlayerIds)) return null
+            return {
+                type: DataChannelMessageType.PlayerDisqualified,
+                playerId: record.playerId,
+                incorrectBindogCounts,
+                disqualifiedPlayerIds: record.disqualifiedPlayerIds
+            }
         }
 
         if (type === DataChannelMessageType.GameEnded) {
@@ -473,9 +498,26 @@ export default abstract class BaseWebRtcService {
         if (record.announceStartedAt !== null && typeof record.announceStartedAt !== "number") return null
         if (record.winnerId !== null && typeof record.winnerId !== "string") return null
         if (record.fakeBingoPlayerId !== null && typeof record.fakeBingoPlayerId !== "string") return null
+        if (
+            record.disqualifiedPlayerId !== undefined &&
+            record.disqualifiedPlayerId !== null &&
+            typeof record.disqualifiedPlayerId !== "string"
+        ) {
+            return null
+        }
 
         const boards = this.parseBoards(record.boards)
         if (!boards) return null
+
+        const incorrectBindogCounts =
+            record.incorrectBindogCounts === undefined ? {} : this.parseWins(record.incorrectBindogCounts)
+        if (!incorrectBindogCounts) return null
+
+        let disqualifiedPlayerIds: string[] = []
+        if (record.disqualifiedPlayerIds !== undefined) {
+            if (!this.isStringArray(record.disqualifiedPlayerIds)) return null
+            disqualifiedPlayerIds = record.disqualifiedPlayerIds
+        }
 
         let progress: IPlayerProgress[] | null = null
         if (record.progress !== null && record.progress !== undefined) {
@@ -492,7 +534,34 @@ export default abstract class BaseWebRtcService {
             boards,
             winnerId: record.winnerId,
             fakeBingoPlayerId: record.fakeBingoPlayerId,
+            incorrectBindogCounts,
+            disqualifiedPlayerIds,
+            disqualifiedPlayerId: typeof record.disqualifiedPlayerId === "string" ? record.disqualifiedPlayerId : null,
             progress
+        }
+    }
+
+    private parseRoomSettings(value: unknown): IRoomSettings | null {
+        if (value === undefined || value === null) {
+            return {
+                fullGridBingo: false,
+                hardMode: false,
+                limitIncorrectBindogs: false
+            }
+        }
+
+        if (!value || typeof value !== "object" || Array.isArray(value)) return null
+        const record = value as Record<string, unknown>
+        if (record.fullGridBingo !== undefined && typeof record.fullGridBingo !== "boolean") return null
+        if (record.hardMode !== undefined && typeof record.hardMode !== "boolean") return null
+        if (record.limitIncorrectBindogs !== undefined && typeof record.limitIncorrectBindogs !== "boolean") {
+            return null
+        }
+
+        return {
+            fullGridBingo: Boolean(record.fullGridBingo),
+            hardMode: Boolean(record.hardMode),
+            limitIncorrectBindogs: Boolean(record.limitIncorrectBindogs)
         }
     }
 
@@ -542,7 +611,7 @@ export default abstract class BaseWebRtcService {
             if (typeof record.playerId !== "string" || typeof record.nickname !== "string") return null
             if (!this.isProgressLineKind(record.kind)) return null
             if (typeof record.index !== "number" || typeof record.filled !== "number") return null
-            if (record.total !== 5) return null
+            if (typeof record.total !== "number" || record.total <= 0) return null
 
             progress.push({
                 playerId: record.playerId,
@@ -550,7 +619,7 @@ export default abstract class BaseWebRtcService {
                 kind: record.kind,
                 index: record.index,
                 filled: record.filled,
-                total: 5
+                total: record.total
             })
         }
 

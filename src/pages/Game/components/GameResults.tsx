@@ -1,7 +1,9 @@
 import type { ILeaderboardEntry } from "#/services/base/utils/leaderboard"
 import type { IPlayerProgress } from "#/@types/game"
 import { ProgressLineKind } from "#/@types/game"
+import type { IRoomSettings } from "#/@types/room"
 import RoomCodeCopy from "#/components/RoomCodeCopy"
+import RoomGameSettings from "#/components/RoomGameSettings"
 import { Button } from "#/components/ui/button"
 import { m } from "#/paraglide/messages"
 
@@ -12,6 +14,8 @@ interface IGameResultsProps {
     roomCode: string
     localPlayerId: string
     isLeader: boolean
+    settings: IRoomSettings
+    onSettingsChange: (settings: IRoomSettings) => void
     onRestart: () => void
 }
 
@@ -22,6 +26,8 @@ export default function GameResults({
     roomCode,
     localPlayerId,
     isLeader,
+    settings,
+    onSettingsChange,
     onRestart
 }: Readonly<IGameResultsProps>) {
     return (
@@ -70,20 +76,27 @@ export default function GameResults({
                                     {rank + 1}. {entry.nickname}
                                 </p>
                                 <p className="m-0 text-xs font-semibold text-(--bark-soft)">
-                                    {m.game_progress_line({
-                                        filled: String(entry.filled),
-                                        total: String(entry.total),
-                                        kind:
-                                            entry.kind === ProgressLineKind.Row
-                                                ? m.game_progress_row()
-                                                : m.game_progress_col(),
-                                        index: String(entry.index + 1)
-                                    })}
+                                    {entry.kind === ProgressLineKind.Grid
+                                        ? m.game_progress_full_grid({
+                                              filled: String(entry.filled),
+                                              total: String(entry.total)
+                                          })
+                                        : m.game_progress_line({
+                                              filled: String(entry.filled),
+                                              total: String(entry.total),
+                                              kind:
+                                                  entry.kind === ProgressLineKind.Row
+                                                      ? m.game_progress_row()
+                                                      : m.game_progress_col(),
+                                              index: String(entry.index + 1)
+                                          })}
                                 </p>
                             </div>
                         </li>
                     ))}
                 </ol>
+
+                <RoomGameSettings settings={settings} editable={isLeader} onChange={onSettingsChange} />
 
                 {isLeader ? (
                     <Button

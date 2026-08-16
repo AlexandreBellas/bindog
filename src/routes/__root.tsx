@@ -1,5 +1,6 @@
 import Footer from "#/components/base/Footer"
 import Header from "#/components/base/Header"
+import { TooltipProvider } from "#/components/ui/tooltip"
 import NotFound from "#/pages/NotFound"
 import { m } from "#/paraglide/messages"
 import { getLocale } from "#/paraglide/runtime"
@@ -73,18 +74,20 @@ function RootDocument({ children }: Readonly<IRootDocumentProps>) {
             </head>
             <body className="flex h-dvh max-h-dvh flex-col overflow-hidden font-sans antialiased wrap-anywhere selection:bg-(--selection)">
                 <PostHogProvider>
-                    <Header />
-                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
-                    <div className="hidden md:block">
-                        <Footer />
-                    </div>
-                    <TanStackDevtools
-                        config={{ position: "bottom-right" }}
-                        plugins={[
-                            { name: "Tanstack Router", render: <TanStackRouterDevtoolsPanel /> },
-                            TanStackQueryDevtools
-                        ]}
-                    />
+                    <TooltipProvider>
+                        <Header />
+                        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+                        <div className="hidden md:block">
+                            <Footer />
+                        </div>
+                        <TanStackDevtools
+                            config={{ position: "bottom-right" }}
+                            plugins={[
+                                { name: "Tanstack Router", render: <TanStackRouterDevtoolsPanel /> },
+                                TanStackQueryDevtools
+                            ]}
+                        />
+                    </TooltipProvider>
                 </PostHogProvider>
                 <Scripts />
             </body>

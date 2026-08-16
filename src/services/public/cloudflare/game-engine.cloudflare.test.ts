@@ -193,6 +193,12 @@ function coverCenterRow(game: IGameState, playerId: string): string[] {
     })
 }
 
+function coverEntireBoard(game: IGameState, playerId: string): string[] {
+    const board = game.boards[playerId]
+    if (!board) throw new Error("missing board")
+    return board.cells.filter((cell): cell is string => cell !== null)
+}
+
 function claimLegitimateBingo(engine: GameEngineCloudflare, playerId: string): void {
     const internals = engine as unknown as EngineInternals
     const game = internals.state!.game!
@@ -208,7 +214,11 @@ function claimLegitimateBingo(engine: GameEngineCloudflare, playerId: string): v
         }
     }
 
-    engine.send({ type: GameEngineMessageType.ClaimBingo })
+    claimBingoFor(engine, playerId)
+}
+
+function claimBingoFor(engine: GameEngineCloudflare, playerId: string): void {
+    ;(engine as unknown as { resolveClaimBingo: (id: string) => void }).resolveClaimBingo(playerId)
 }
 
 describe("GameEngineCloudflare", () => {
@@ -1392,6 +1402,224 @@ describe("GameEngineCloudflare", () => {
         await vi.waitFor(() => {
             expect(engine.getState()?.players).toHaveLength(2)
         })
+
+        await engine.dispose()
+    })
+
+    it("lets the leader change round settings in lobby and keeps them after start", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        await connectLeaderWithJoiner(engine)
+
+        engine.send({
+            type: GameEngineMessageType.UpdateSettings,
+            settings: { fullGridBingo: true, hardMode: true, limitIncorrectBindogs: true }
+        })
+        expect(engine.getState()?.settings).toEqual({
+            fullGridBingo: true,
+            hardMode: true,
+            limitIncorrectBindogs: true
+        })
+
+        await startPlaying(engine)
+        expect(engine.getState()?.settings.hardMode).toBe(true)
+        expect(engine.getState()?.settings.fullGridBingo).toBe(true)
+        expect(engine.getState()?.game?.disqualifiedPlayerIds).toEqual([])
+
+        engine.send({
+            type: GameEngineMessageType.UpdateSettings,
+            settings: { fullGridBingo: false, hardMode: false, limitIncorrectBindogs: false }
+        })
+        expect(engine.getState()?.settings.hardMode).toBe(true)
+
+        await engine.dispose()
+    })
+
+    it("ignores settings updates from non-leaders", async () => {
+        const engine = new GameEngineCloudflare()
+        await connectLeaderWithJoiner(engine)
+
+        ;(engine as unknown as { isLeader: boolean }).isLeader = false
+        engine.send({
+            type: GameEngineMessageType.UpdateSettings,
+            settings: { fullGridBingo: true, hardMode: true, limitIncorrectBindogs: true }
+        })
+        expect(engine.getState()?.settings.fullGridBingo).toBe(false)
+        ;(engine as unknown as { isLeader: boolean }).isLeader = true
+
+        await engine.dispose()
+    })
+
+    it("requires a full card when full-grid bingo is enabled", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        engine.send({
+            type: GameEngineMessageType.UpdateSettings,
+            settings: { fullGridBingo: true, hardMode: false, limitIncorrectBindogs: false }
+        })
+        await startPlaying(engine)
+
+        const internals = engine as unknown as EngineInternals
+        const rowOnly = coverCenterRow(internals.state!.game!, leaderId)
+        internals.state = {
+            ...internals.state!,
+            game: {
+                ...internals.state!.game!,
+                announced: rowOnly,
+                callOrder: internals.state!.game!.callOrder.filter(id => !rowOnly.includes(id))
+            }
+        }
+        engine.send({ type: GameEngineMessageType.ClaimBingo })
+        expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+        expect(engine.getState()?.game?.fakeBingoPlayerId).toBe(leaderId)
+
+        const fullCard = coverEntireBoard(engine.getState()!.game!, leaderId)
+        internals.state = {
+            ...engine.getState()!,
+            game: {
+                ...engine.getState()!.game!,
+                announced: fullCard,
+                callOrder: engine.getState()!.game!.callOrder.filter(id => !fullCard.includes(id)),
+                fakeBingoPlayerId: null
+            }
+        }
+        engine.send({ type: GameEngineMessageType.ClaimBingo })
+        expect(engine.getState()?.phase).toBe(RoomPhase.Ended)
+        expect(engine.getState()?.game?.winnerId).toBe(leaderId)
+        expect(engine.getState()?.game?.progress?.[0]?.kind).toBe("grid")
+        expect(engine.getState()?.game?.progress?.[0]?.total).toBe(25)
+
+        await engine.dispose()
+    })
+
+    it("awards the last remaining player when everyone else is disqualified", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        engine.send({
+            type: GameEngineMessageType.UpdateSettings,
+            settings: { fullGridBingo: false, hardMode: false, limitIncorrectBindogs: true }
+        })
+        await startPlaying(engine)
+
+        claimBingoFor(engine, leaderId)
+        claimBingoFor(engine, leaderId)
+        expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+
+        claimBingoFor(engine, leaderId)
+        expect(engine.getState()?.phase).toBe(RoomPhase.Ended)
+        expect(engine.getState()?.game?.winnerId).toBe("joiner-1")
+        expect(engine.getState()?.game?.disqualifiedPlayerIds).toEqual([leaderId])
+        expect(engine.getState()?.wins["joiner-1"]).toBe(1)
+        expect(engine.getState()?.wins[leaderId]).toBe(0)
+
+        await engine.dispose()
+    })
+
+    it("keeps the round going until only one in-round player remains", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "peer-joined",
+                peer: { id: "joiner-2", nickname: "Gamma", isLeader: false }
+            })
+        )
+        engine.send({
+            type: GameEngineMessageType.UpdateSettings,
+            settings: { fullGridBingo: false, hardMode: false, limitIncorrectBindogs: true }
+        })
+        await startPlaying(engine)
+
+        claimBingoFor(engine, leaderId)
+        claimBingoFor(engine, leaderId)
+        claimBingoFor(engine, leaderId)
+        expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+        expect(engine.getState()?.game?.winnerId).toBeNull()
+        expect(engine.getState()?.game?.disqualifiedPlayerIds).toEqual([leaderId])
+
+        claimBingoFor(engine, leaderId)
+        expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+
+        claimBingoFor(engine, "joiner-1")
+        claimBingoFor(engine, "joiner-1")
+        claimBingoFor(engine, "joiner-1")
+        expect(engine.getState()?.phase).toBe(RoomPhase.Ended)
+        expect(engine.getState()?.game?.winnerId).toBe("joiner-2")
+        expect(engine.getState()?.game?.disqualifiedPlayerIds).toEqual([leaderId, "joiner-1"])
+        expect(engine.getState()?.wins["joiner-2"]).toBe(1)
+
+        await engine.dispose()
+    })
+
+    it("does not count late joiners without a board as remaining players", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        engine.send({
+            type: GameEngineMessageType.UpdateSettings,
+            settings: { fullGridBingo: false, hardMode: false, limitIncorrectBindogs: true }
+        })
+        await startPlaying(engine)
+
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "peer-joined",
+                peer: { id: "joiner-2", nickname: "Gamma", isLeader: false }
+            })
+        )
+
+        claimBingoFor(engine, leaderId)
+        claimBingoFor(engine, leaderId)
+        claimBingoFor(engine, leaderId)
+
+        expect(engine.getState()?.phase).toBe(RoomPhase.Ended)
+        expect(engine.getState()?.game?.winnerId).toBe("joiner-1")
+        expect(engine.getState()?.game?.boards["joiner-2"]).toBeUndefined()
+
+        await engine.dispose()
+    })
+
+    it("does not disqualify unlimited incorrect Bindogs and resets the cap on restart", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        await startPlaying(engine)
+
+        engine.send({ type: GameEngineMessageType.ClaimBingo })
+        engine.send({ type: GameEngineMessageType.ClaimBingo })
+        engine.send({ type: GameEngineMessageType.ClaimBingo })
+        expect(engine.getState()?.game?.disqualifiedPlayerIds).toEqual([])
+        expect(engine.getState()?.game?.incorrectBindogCounts[leaderId]).toBe(3)
+
+        claimLegitimateBingo(engine, leaderId)
+        expect(engine.getState()?.phase).toBe(RoomPhase.Ended)
+
+        engine.send({
+            type: GameEngineMessageType.UpdateSettings,
+            settings: { fullGridBingo: false, hardMode: false, limitIncorrectBindogs: true }
+        })
+        expect(engine.getState()?.settings.limitIncorrectBindogs).toBe(true)
+
+        engine.send({ type: GameEngineMessageType.RestartGame })
+        await vi.waitFor(() => {
+            expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+        })
+        expect(engine.getState()?.game?.incorrectBindogCounts).toEqual({})
+        expect(engine.getState()?.game?.disqualifiedPlayerIds).toEqual([])
+        expect(engine.getState()?.settings.limitIncorrectBindogs).toBe(true)
 
         await engine.dispose()
     })

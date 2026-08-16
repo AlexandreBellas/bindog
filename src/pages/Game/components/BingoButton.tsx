@@ -4,9 +4,10 @@ import { m } from "#/paraglide/messages"
 interface IBingoButtonProps {
     ready: boolean
     onClaim: () => void
+    hint: string
 }
 
-export default function BingoButton({ ready, onClaim }: Readonly<IBingoButtonProps>) {
+export default function BingoButton({ ready, onClaim, hint }: Readonly<IBingoButtonProps>) {
     return (
         <div className="flex w-full flex-col gap-2">
             <Button
@@ -18,9 +19,7 @@ export default function BingoButton({ ready, onClaim }: Readonly<IBingoButtonPro
             >
                 {m.game_bingo_button()}
             </Button>
-            <p className="m-0 text-center text-xs font-semibold text-(--bark-soft) sm:text-sm">
-                {m.game_bingo_disabled_hint()}
-            </p>
+            <p className="m-0 text-center text-xs font-semibold text-(--bark-soft) sm:text-sm">{hint}</p>
         </div>
     )
 }

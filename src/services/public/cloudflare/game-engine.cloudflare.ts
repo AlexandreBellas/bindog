@@ -19,8 +19,10 @@ import {
 import { ANNOUNCE_INTERVAL_MS } from "#/constants/announce"
 import { BREED_IDS } from "#/constants/breeds"
 import { COUNTDOWN_START, COUNTDOWN_TICK_MS } from "#/constants/countdown"
-import { bestLineProgress, dealAllBoards, isLegitimateBingo, shuffleCallOrder } from "#/services/base/utils/bingo"
+import { bestBingoProgress, dealAllBoards, shuffleCallOrder } from "#/services/base/utils/bingo"
+import { findSoleRemainingPlayerId, resolveBingoClaim } from "#/services/base/utils/bingo-claim"
 import { ensurePlayerWins, recordWin } from "#/services/base/utils/leaderboard"
+import { canUpdateRoomSettings, createDefaultRoomSettings } from "#/services/base/utils/room-settings"
 import BaseWebRtcService from "#/services/base/webrtc"
 import type IGameEngineGateway from "../IGameEngineGateway"
 import type { IRoomStateListener } from "../IGameEngineGateway"
@@ -120,6 +122,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 countdown: null,
                 localPlayerId: this.localPeerId,
                 game: null,
+                settings: createDefaultRoomSettings(),
                 abandoned: false,
                 pendingLeavePeerIds: [],
                 wins: { [this.localPeerId]: 0 }
@@ -192,6 +195,11 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
 
         if (message.type === GameEngineMessageType.ClaimBingo) {
             this.requestClaimBingo()
+            return
+        }
+
+        if (message.type === GameEngineMessageType.UpdateSettings) {
+            this.updateRoomSettings(message.settings)
             return
         }
 
@@ -272,6 +280,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 countdown: previous?.countdown ?? null,
                 localPlayerId: this.localPeerId,
                 game: previous?.game ?? null,
+                settings: previous?.settings ?? createDefaultRoomSettings(),
                 abandoned: previous?.abandoned ?? false,
                 pendingLeavePeerIds: [],
                 wins: ensurePlayerWins(
@@ -1053,7 +1062,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                     phase: message.phase,
                     countdown: message.countdown,
                     game: message.game,
-                    wins: message.wins
+                    wins: message.wins,
+                    settings: message.settings
                 })
                 break
             }
@@ -1088,7 +1098,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                         announced: message.announced,
                         callOrder: message.callOrder,
                         announceStartedAt: message.announceStartedAt,
-                        fakeBingoPlayerId: null
+                        fakeBingoPlayerId: null,
+                        disqualifiedPlayerId: null
                     }
                 })
                 break
@@ -1099,7 +1110,23 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                     ...state,
                     game: {
                         ...state.game,
-                        fakeBingoPlayerId: message.playerId
+                        fakeBingoPlayerId: message.playerId,
+                        incorrectBindogCounts: message.incorrectBindogCounts,
+                        disqualifiedPlayerId: null
+                    }
+                })
+                break
+            }
+            case DataChannelMessageType.PlayerDisqualified: {
+                if (!state.game) break
+                this.setState({
+                    ...state,
+                    game: {
+                        ...state.game,
+                        fakeBingoPlayerId: null,
+                        disqualifiedPlayerId: message.playerId,
+                        incorrectBindogCounts: message.incorrectBindogCounts,
+                        disqualifiedPlayerIds: message.disqualifiedPlayerIds
                     }
                 })
                 break
@@ -1142,7 +1169,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             phase: state.phase,
             countdown: state.countdown,
             game: state.game,
-            wins: state.wins
+            wins: state.wins,
+            settings: state.settings
         }
 
         this.broadcast(message)
@@ -1222,6 +1250,9 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             boards: dealAllBoards(playerIds, BREED_IDS),
             winnerId: null,
             fakeBingoPlayerId: null,
+            incorrectBindogCounts: {},
+            disqualifiedPlayerIds: [],
+            disqualifiedPlayerId: null,
             progress: null
         }
     }
@@ -1290,7 +1321,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             announced,
             currentBreedId: nextBreedId,
             announceStartedAt,
-            fakeBingoPlayerId: null
+            fakeBingoPlayerId: null,
+            disqualifiedPlayerId: null
         }
 
         this.setState({ ...state, game })
@@ -1325,21 +1357,71 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         if (!state?.game || state.phase !== RoomPhase.Playing || !this.isLeader) return
 
         const game = state.game
-        if (!(playerId in game.boards)) return
-        const board = game.boards[playerId]
+        const settings = state.settings
+        const resolution = resolveBingoClaim({
+            board: Object.hasOwn(game.boards, playerId) ? game.boards[playerId] : undefined,
+            announced: game.announced,
+            playerId,
+            fullGridBingo: settings.fullGridBingo,
+            limitIncorrectBindogs: settings.limitIncorrectBindogs,
+            incorrectBindogCounts: game.incorrectBindogCounts,
+            disqualifiedPlayerIds: game.disqualifiedPlayerIds
+        })
 
-        if (!isLegitimateBingo(board, game.announced)) {
+        if (resolution.outcome === "ignored") return
+
+        if (resolution.outcome === "fake") {
             const nextGame: IGameState = {
                 ...game,
-                fakeBingoPlayerId: playerId
+                fakeBingoPlayerId: playerId,
+                disqualifiedPlayerId: null,
+                incorrectBindogCounts: resolution.incorrectBindogCounts,
+                disqualifiedPlayerIds: resolution.disqualifiedPlayerIds
             }
             this.setState({ ...state, game: nextGame })
             this.broadcast({
                 type: DataChannelMessageType.FakeBingo,
-                playerId
+                playerId,
+                incorrectBindogCounts: resolution.incorrectBindogCounts
             })
             return
         }
+
+        if (resolution.outcome === "disqualified") {
+            const nextGame: IGameState = {
+                ...game,
+                fakeBingoPlayerId: null,
+                disqualifiedPlayerId: playerId,
+                incorrectBindogCounts: resolution.incorrectBindogCounts,
+                disqualifiedPlayerIds: resolution.disqualifiedPlayerIds
+            }
+            this.setState({ ...state, game: nextGame })
+            this.broadcast({
+                type: DataChannelMessageType.PlayerDisqualified,
+                playerId,
+                incorrectBindogCounts: resolution.incorrectBindogCounts,
+                disqualifiedPlayerIds: resolution.disqualifiedPlayerIds
+            })
+
+            const remainingPlayerId = findSoleRemainingPlayerId(
+                Object.keys(nextGame.boards),
+                nextGame.disqualifiedPlayerIds
+            )
+            if (remainingPlayerId) {
+                this.endPlayingRound(remainingPlayerId)
+            }
+            return
+        }
+
+        this.endPlayingRound(playerId)
+    }
+
+    private endPlayingRound(winnerId: string): void {
+        const state = this.state
+        if (!state?.game || state.phase !== RoomPhase.Playing || !this.isLeader) return
+
+        const game = state.game
+        const settings = state.settings
 
         this.clearAnnounceTimer()
 
@@ -1347,8 +1429,13 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             const playerBoard = Object.hasOwn(game.boards, player.id) ? game.boards[player.id] : null
             const line =
                 playerBoard === null
-                    ? { kind: "row" as const, index: 0, filled: 0, total: 5 as const }
-                    : bestLineProgress(playerBoard, game.announced)
+                    ? {
+                          kind: settings.fullGridBingo ? ("grid" as const) : ("row" as const),
+                          index: 0,
+                          filled: 0,
+                          total: settings.fullGridBingo ? 25 : 5
+                      }
+                    : bestBingoProgress(playerBoard, game.announced, settings.fullGridBingo)
 
             return {
                 playerId: player.id,
@@ -1361,12 +1448,13 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
 
         const endedGame: IGameState = {
             ...game,
-            winnerId: playerId,
+            winnerId,
             fakeBingoPlayerId: null,
+            disqualifiedPlayerId: game.disqualifiedPlayerId,
             progress
         }
 
-        const wins = recordWin(state.wins, playerId)
+        const wins = recordWin(state.wins, winnerId)
 
         this.setState({
             ...state,
@@ -1378,11 +1466,22 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
 
         this.broadcast({
             type: DataChannelMessageType.GameEnded,
-            winnerId: playerId,
+            winnerId,
             progress,
             game: endedGame,
             wins
         })
+    }
+
+    private updateRoomSettings(settings: IRoomState["settings"]): void {
+        const state = this.state
+        if (!state || !canUpdateRoomSettings(this.isLeader, state.phase)) return
+
+        this.setState({
+            ...state,
+            settings
+        })
+        this.broadcastSync()
     }
 
     private async restartGame(): Promise<void> {

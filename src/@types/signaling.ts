@@ -1,5 +1,5 @@
 import type { IGameState, IPlayerProgress } from "./game"
-import type { IRoomPlayer, IRoomState } from "./room"
+import type { IRoomPlayer, IRoomSettings, IRoomState } from "./room"
 import type { IKeyable } from "#/utils/types/keyable"
 
 export const dataChannelMessageTypes = [
@@ -10,6 +10,7 @@ export const dataChannelMessageTypes = [
     "game-snapshot",
     "breed-announced",
     "fake-bingo",
+    "player-disqualified",
     "game-ended",
     "claim-bingo"
 ] as const
@@ -24,6 +25,7 @@ export const DataChannelMessageType = {
     GameSnapshot: "game-snapshot",
     BreedAnnounced: "breed-announced",
     FakeBingo: "fake-bingo",
+    PlayerDisqualified: "player-disqualified",
     GameEnded: "game-ended",
     ClaimBingo: "claim-bingo"
 } as const satisfies Record<IKeyable<IDataChannelMessageType>, IDataChannelMessageType>
@@ -37,6 +39,7 @@ export interface ISyncMessage {
     countdown: number | null
     game: IGameState | null
     wins: Record<string, number>
+    settings: IRoomSettings
 }
 
 export interface ICountdownMessage {
@@ -70,6 +73,14 @@ export interface IBreedAnnouncedMessage {
 export interface IFakeBingoMessage {
     type: typeof DataChannelMessageType.FakeBingo
     playerId: string
+    incorrectBindogCounts: Record<string, number>
+}
+
+export interface IPlayerDisqualifiedMessage {
+    type: typeof DataChannelMessageType.PlayerDisqualified
+    playerId: string
+    incorrectBindogCounts: Record<string, number>
+    disqualifiedPlayerIds: string[]
 }
 
 export interface IGameEndedMessage {
@@ -93,6 +104,7 @@ export type IDataChannelMessage =
     | IGameSnapshotMessage
     | IBreedAnnouncedMessage
     | IFakeBingoMessage
+    | IPlayerDisqualifiedMessage
     | IGameEndedMessage
     | IClaimBingoDataChannelMessage
 
