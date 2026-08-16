@@ -2,6 +2,7 @@ import type { IBingoBoard, IGameState, IPlayerProgress, IProgressLineKind } from
 import { progressLineKinds } from "#/@types/game"
 import type { IRoomPhase, IRoomPlayer, IRoomState } from "#/@types/room"
 import { RoomPhase, roomPhases } from "#/@types/room"
+import { ensurePlayerWins } from "#/services/base/utils/leaderboard"
 import type {
     IDataChannelMessage,
     IIceTransportPath,
@@ -85,9 +86,14 @@ export default abstract class BaseWebRtcService {
      */
     protected upsertPlayer(state: IRoomState, player: IRoomPlayer): IRoomState {
         const without = state.players.filter(item => item.id !== player.id)
+        const players = [...without, player]
         return {
             ...state,
-            players: [...without, player]
+            players,
+            wins: ensurePlayerWins(
+                state.wins,
+                players.map(item => item.id)
+            )
         }
     }
 
@@ -182,6 +188,9 @@ export default abstract class BaseWebRtcService {
             const game = record.game === null || record.game === undefined ? null : this.parseGameState(record.game)
             if (record.game !== null && record.game !== undefined && !game) return null
 
+            const wins = record.wins === undefined ? {} : this.parseWins(record.wins)
+            if (!wins) return null
+
             return {
                 type: DataChannelMessageType.Sync,
                 code: record.code,
@@ -189,7 +198,8 @@ export default abstract class BaseWebRtcService {
                 players,
                 phase: record.phase,
                 countdown: typeof record.countdown === "number" ? record.countdown : null,
-                game
+                game,
+                wins
             }
         }
 
@@ -249,7 +259,9 @@ export default abstract class BaseWebRtcService {
             if (!game) return null
             const progress = this.parsePlayerProgressList(record.progress)
             if (!progress) return null
-            return { type: DataChannelMessageType.GameEnded, winnerId: record.winnerId, progress, game }
+            const wins = record.wins === undefined ? {} : this.parseWins(record.wins)
+            if (!wins) return null
+            return { type: DataChannelMessageType.GameEnded, winnerId: record.winnerId, progress, game, wins }
         }
 
         if (type === DataChannelMessageType.ClaimBingo) {
@@ -482,6 +494,19 @@ export default abstract class BaseWebRtcService {
             fakeBingoPlayerId: record.fakeBingoPlayerId,
             progress
         }
+    }
+
+    private parseWins(value: unknown): Record<string, number> | null {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return null
+
+        const wins: Record<string, number> = {}
+
+        for (const [playerId, count] of Object.entries(value as Record<string, unknown>)) {
+            if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return null
+            wins[playerId] = count
+        }
+
+        return wins
     }
 
     private parseBoards(value: unknown): Record<string, IBingoBoard> | null {

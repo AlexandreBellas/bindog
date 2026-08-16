@@ -36,6 +36,7 @@ export interface ISyncMessage {
     phase: IRoomState["phase"]
     countdown: number | null
     game: IGameState | null
+    wins: Record<string, number>
 }
 
 export interface ICountdownMessage {
@@ -76,6 +77,7 @@ export interface IGameEndedMessage {
     winnerId: string
     progress: IPlayerProgress[]
     game: IGameState
+    wins: Record<string, number>
 }
 
 export interface IClaimBingoDataChannelMessage {

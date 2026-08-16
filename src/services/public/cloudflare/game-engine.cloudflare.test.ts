@@ -5,7 +5,14 @@ import { ANNOUNCE_INTERVAL_MS } from "#/constants/announce"
 import { WILD_CELL_INDEX } from "#/constants/breeds"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import GameEngineCloudflare from "./game-engine.cloudflare"
-import { clearRoomSession, loadRoomSession, PEER_LEAVE_GRACE_MS, saveRoomSession, SIGNALING_CONNECT_TIMEOUT_MS, SIGNALING_RECONNECT_DELAY_MS } from "./room-session"
+import {
+    clearRoomSession,
+    loadRoomSession,
+    PEER_LEAVE_GRACE_MS,
+    saveRoomSession,
+    SIGNALING_CONNECT_TIMEOUT_MS,
+    SIGNALING_RECONNECT_DELAY_MS
+} from "./room-session"
 
 class MockWebSocket {
     static OPEN = 1
@@ -186,6 +193,24 @@ function coverCenterRow(game: IGameState, playerId: string): string[] {
     })
 }
 
+function claimLegitimateBingo(engine: GameEngineCloudflare, playerId: string): void {
+    const internals = engine as unknown as EngineInternals
+    const game = internals.state!.game!
+    const needed = coverCenterRow(game, playerId)
+
+    internals.state = {
+        ...internals.state!,
+        game: {
+            ...game,
+            announced: needed,
+            callOrder: game.callOrder.filter(id => !needed.includes(id)),
+            fakeBingoPlayerId: null
+        }
+    }
+
+    engine.send({ type: GameEngineMessageType.ClaimBingo })
+}
+
 describe("GameEngineCloudflare", () => {
     const originalFetch = globalThis.fetch
     const originalWebSocket = globalThis.WebSocket
@@ -275,6 +300,7 @@ describe("GameEngineCloudflare", () => {
         expect(state?.phase).toBe(RoomPhase.Playing)
         expect(state?.game?.fakeBingoPlayerId).toBe(state?.localPlayerId)
         expect(state?.game?.winnerId).toBeNull()
+        expect(state?.wins[state!.localPlayerId]).toBe(0)
 
         await engine.dispose()
     })
@@ -306,6 +332,104 @@ describe("GameEngineCloudflare", () => {
         expect(state?.phase).toBe(RoomPhase.Ended)
         expect(state?.game?.winnerId).toBe(leaderId)
         expect(state?.game?.progress?.length).toBe(2)
+        expect(state?.wins[leaderId]).toBe(1)
+        expect(state?.wins["joiner-1"]).toBe(0)
+
+        await engine.dispose()
+    })
+
+    it("keeps room wins across multiple finished rounds", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        expect(engine.getState()?.wins).toEqual({ [leaderId]: 0, "joiner-1": 0 })
+
+        await startPlaying(engine)
+        claimLegitimateBingo(engine, leaderId)
+        expect(engine.getState()?.wins[leaderId]).toBe(1)
+
+        engine.send({ type: GameEngineMessageType.RestartGame })
+        await vi.waitFor(() => {
+            expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+        })
+        expect(engine.getState()?.wins[leaderId]).toBe(1)
+
+        claimLegitimateBingo(engine, leaderId)
+        expect(engine.getState()?.phase).toBe(RoomPhase.Ended)
+        expect(engine.getState()?.wins[leaderId]).toBe(2)
+        expect(engine.getState()?.wins["joiner-1"]).toBe(0)
+
+        await engine.dispose()
+    })
+
+    it("lets a late joiner sit out the current round and receive a board on restart", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        await startPlaying(engine)
+
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "peer-joined",
+                peer: { id: "joiner-2", nickname: "Gamma", isLeader: false }
+            })
+        )
+
+        const duringRound = engine.getState()
+        expect(duringRound?.players.some(player => player.id === "joiner-2")).toBe(true)
+        expect(duringRound?.wins["joiner-2"]).toBe(0)
+        expect(duringRound?.game?.boards["joiner-2"]).toBeUndefined()
+        expect(duringRound?.game?.boards[leaderId]).toBeTruthy()
+
+        claimLegitimateBingo(engine, leaderId)
+        expect(engine.getState()?.wins[leaderId]).toBe(1)
+
+        engine.send({ type: GameEngineMessageType.RestartGame })
+        await vi.waitFor(() => {
+            expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+        })
+
+        const nextRound = engine.getState()
+        expect(nextRound?.game?.boards["joiner-2"]).toBeTruthy()
+        expect(nextRound?.game?.boards[leaderId]).toBeTruthy()
+        expect(nextRound?.wins[leaderId]).toBe(1)
+        expect(nextRound?.wins["joiner-2"]).toBe(0)
+
+        await engine.dispose()
+    })
+
+    it("lets a player join an ended room and receive a board on the next round", async () => {
+        vi.useFakeTimers()
+
+        const engine = new GameEngineCloudflare()
+        const leaderId = await connectLeaderWithJoiner(engine)
+        await startPlaying(engine)
+        claimLegitimateBingo(engine, leaderId)
+        expect(engine.getState()?.phase).toBe(RoomPhase.Ended)
+
+        const socket = (engine as unknown as EngineInternals).signalingSocket!
+        socket.emit(
+            "message",
+            JSON.stringify({
+                type: "peer-joined",
+                peer: { id: "joiner-2", nickname: "Gamma", isLeader: false }
+            })
+        )
+
+        expect(engine.getState()?.game?.boards["joiner-2"]).toBeUndefined()
+        expect(engine.getState()?.wins["joiner-2"]).toBe(0)
+
+        engine.send({ type: GameEngineMessageType.RestartGame })
+        await vi.waitFor(() => {
+            expect(engine.getState()?.phase).toBe(RoomPhase.Playing)
+        })
+
+        expect(engine.getState()?.game?.boards["joiner-2"]).toBeTruthy()
+        expect(engine.getState()?.wins[leaderId]).toBe(1)
 
         await engine.dispose()
     })
@@ -469,12 +593,18 @@ describe("GameEngineCloudflare", () => {
             })
         )
 
-        expect(leader.getState()?.players.map(player => player.id).sort()).toEqual(
-            [leaderJoin.peerId, joinerJoin.peerId].sort()
-        )
-        expect(joiner.getState()?.players.map(player => player.id).sort()).toEqual(
-            [leaderJoin.peerId, joinerJoin.peerId].sort()
-        )
+        expect(
+            leader
+                .getState()
+                ?.players.map(player => player.id)
+                .sort()
+        ).toEqual([leaderJoin.peerId, joinerJoin.peerId].sort())
+        expect(
+            joiner
+                .getState()
+                ?.players.map(player => player.id)
+                .sort()
+        ).toEqual([leaderJoin.peerId, joinerJoin.peerId].sort())
 
         await leader.dispose()
         await joiner.dispose()
@@ -750,9 +880,12 @@ describe("GameEngineCloudflare", () => {
 
             emitPeerLeft(engine)
 
-            expect(engine.getState()?.players.map(player => player.id).sort()).toEqual(
-                [leaderId, "joiner-1"].sort()
-            )
+            expect(
+                engine
+                    .getState()
+                    ?.players.map(player => player.id)
+                    .sort()
+            ).toEqual([leaderId, "joiner-1"].sort())
             expect(engine.canStartGame()).toBe(false)
             expect(() => engine.send({ type: GameEngineMessageType.StartGame })).toThrow(/two players/i)
 
@@ -828,9 +961,12 @@ describe("GameEngineCloudflare", () => {
             peerConnection!.connectionState = "failed"
             peerConnection!.emit("connectionstatechange")
 
-            expect(engine.getState()?.players.map(player => player.id).sort()).toEqual(
-                [leaderId, "joiner-1"].sort()
-            )
+            expect(
+                engine
+                    .getState()
+                    ?.players.map(player => player.id)
+                    .sort()
+            ).toEqual([leaderId, "joiner-1"].sort())
             expect(engine.canStartGame()).toBe(false)
 
             await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
@@ -874,9 +1010,12 @@ describe("GameEngineCloudflare", () => {
 
             await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
 
-            expect(engine.getState()?.players.map(player => player.id).sort()).toEqual(
-                [leaderId, "joiner-1"].sort()
-            )
+            expect(
+                engine
+                    .getState()
+                    ?.players.map(player => player.id)
+                    .sort()
+            ).toEqual([leaderId, "joiner-1"].sort())
             expect(engine.canStartGame()).toBe(true)
             expect(engine.getState()?.phase).toBe(RoomPhase.Lobby)
 
@@ -895,9 +1034,12 @@ describe("GameEngineCloudflare", () => {
             // peer-joined tears down the old RTC link under suppress; that close must not re-arm grace.
             await vi.advanceTimersByTimeAsync(PEER_LEAVE_GRACE_MS)
 
-            expect(engine.getState()?.players.map(player => player.id).sort()).toEqual(
-                [leaderId, "joiner-1"].sort()
-            )
+            expect(
+                engine
+                    .getState()
+                    ?.players.map(player => player.id)
+                    .sort()
+            ).toEqual([leaderId, "joiner-1"].sort())
             expect(engine.canStartGame()).toBe(true)
 
             await engine.dispose()

@@ -19,13 +19,8 @@ import {
 import { ANNOUNCE_INTERVAL_MS } from "#/constants/announce"
 import { BREED_IDS } from "#/constants/breeds"
 import { COUNTDOWN_START, COUNTDOWN_TICK_MS } from "#/constants/countdown"
-import {
-    bestLineProgress,
-    dealAllBoards,
-    dealBoard,
-    isLegitimateBingo,
-    shuffleCallOrder
-} from "#/services/base/utils/bingo"
+import { bestLineProgress, dealAllBoards, isLegitimateBingo, shuffleCallOrder } from "#/services/base/utils/bingo"
+import { ensurePlayerWins, recordWin } from "#/services/base/utils/leaderboard"
 import BaseWebRtcService from "#/services/base/webrtc"
 import type IGameEngineGateway from "../IGameEngineGateway"
 import type { IRoomStateListener } from "../IGameEngineGateway"
@@ -126,7 +121,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 localPlayerId: this.localPeerId,
                 game: null,
                 abandoned: false,
-                pendingLeavePeerIds: []
+                pendingLeavePeerIds: [],
+                wins: { [this.localPeerId]: 0 }
             }
             this.emit()
 
@@ -256,26 +252,32 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
 
             const existing = await this.fetchRoom(roomCode, signal)
 
+            const players = previous?.players.length
+                ? previous.players.map(player =>
+                      player.id === session.peerId ? { ...player, nickname: session.nickname } : player
+                  )
+                : [
+                      {
+                          id: this.localPeerId,
+                          nickname: session.nickname,
+                          isLeader: this.isLeader
+                      }
+                  ]
+
             this.state = {
                 code: roomCode,
                 name: existing.name,
-                players: previous?.players.length
-                    ? previous.players.map(player =>
-                          player.id === session.peerId ? { ...player, nickname: session.nickname } : player
-                      )
-                    : [
-                          {
-                              id: this.localPeerId,
-                              nickname: session.nickname,
-                              isLeader: this.isLeader
-                          }
-                      ],
+                players,
                 phase: previous?.phase ?? RoomPhase.Lobby,
                 countdown: previous?.countdown ?? null,
                 localPlayerId: this.localPeerId,
                 game: previous?.game ?? null,
                 abandoned: previous?.abandoned ?? false,
-                pendingLeavePeerIds: []
+                pendingLeavePeerIds: [],
+                wins: ensurePlayerWins(
+                    previous?.wins ?? {},
+                    players.map(player => player.id)
+                )
             }
             this.emit()
 
@@ -640,7 +642,11 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             code: message.roomCode,
             name: message.roomName,
             players,
-            localPlayerId: this.localPeerId ?? state.localPlayerId
+            localPlayerId: this.localPeerId ?? state.localPlayerId,
+            wins: ensurePlayerWins(
+                state.wins,
+                players.map(player => player.id)
+            )
         })
         this.persistCurrentSession()
 
@@ -663,22 +669,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 this.cancelPendingPeerLeave(message.peer.id)
 
                 const state = this.requireState()
-                let next = this.upsertPlayer(state, message.peer)
-
-                if (this.isLeader && next.game && !next.game.boards[message.peer.id]) {
-                    next = {
-                        ...next,
-                        game: {
-                            ...next.game,
-                            boards: {
-                                ...next.game.boards,
-                                [message.peer.id]: dealBoard(BREED_IDS)
-                            }
-                        }
-                    }
-                }
-
-                this.setState(next)
+                this.setState(this.upsertPlayer(state, message.peer))
 
                 if (this.isLeader && message.peer.id !== this.localPeerId) {
                     this.withSuppressedPeerLeaveGrace(() => {
@@ -1061,7 +1052,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                     players: message.players,
                     phase: message.phase,
                     countdown: message.countdown,
-                    game: message.game
+                    game: message.game,
+                    wins: message.wins
                 })
                 break
             }
@@ -1123,7 +1115,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                         winnerId: message.winnerId,
                         progress: message.progress,
                         fakeBingoPlayerId: null
-                    }
+                    },
+                    wins: message.wins
                 })
                 break
             }
@@ -1148,7 +1141,8 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             players: state.players,
             phase: state.phase,
             countdown: state.countdown,
-            game: state.game
+            game: state.game,
+            wins: state.wins
         }
 
         this.broadcast(message)
@@ -1372,18 +1366,22 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
             progress
         }
 
+        const wins = recordWin(state.wins, playerId)
+
         this.setState({
             ...state,
             phase: RoomPhase.Ended,
             countdown: null,
-            game: endedGame
+            game: endedGame,
+            wins
         })
 
         this.broadcast({
             type: DataChannelMessageType.GameEnded,
             winnerId: playerId,
             progress,
-            game: endedGame
+            game: endedGame,
+            wins
         })
     }
 

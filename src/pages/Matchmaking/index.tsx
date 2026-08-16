@@ -1,6 +1,7 @@
 import type { IRoomState } from "#/@types/room"
 import { GameEngineMessageType, RoomPhase } from "#/@types/room"
 import LeaveGameButton from "#/components/LeaveGameButton"
+import RoomCodeCopy from "#/components/RoomCodeCopy"
 import { Button } from "#/components/ui/button"
 import { m } from "#/paraglide/messages"
 import { loadRoomSession } from "#/services/public/cloudflare/room-session"
@@ -22,7 +23,6 @@ export default function Matchmaking() {
     // #region States
     const [room, setRoom] = useState<IRoomState | null>(() => gameEngine.getState())
     const [startError, setStartError] = useState<string | null>(null)
-    const [copied, setCopied] = useState(false)
     const handleStartGame = () => {
         setStartError(null)
 
@@ -30,17 +30,6 @@ export default function Matchmaking() {
             gameEngine.send({ type: GameEngineMessageType.StartGame })
         } catch {
             setStartError(m.error_need_two_players())
-        }
-    }
-    const handleCopyCode = async () => {
-        if (!room) return
-
-        try {
-            await navigator.clipboard.writeText(room.code)
-            setCopied(true)
-            window.setTimeout(() => setCopied(false), 1500)
-        } catch {
-            setCopied(false)
         }
     }
     // #endregion
@@ -104,22 +93,7 @@ export default function Matchmaking() {
                     <p className="m-0 text-base text-(--bark-soft)">{m.lobby_share_hint()}</p>
                 </header>
 
-                <section className="flex flex-col items-center gap-3 rounded-3xl border border-(--chip-line) bg-(--surface) px-5 py-6 text-center">
-                    <p className="m-0 text-sm font-semibold uppercase tracking-[0.18em] text-(--kicker)">
-                        {m.lobby_room_code()}
-                    </p>
-                    <p className="display-title m-0 text-4xl font-extrabold tracking-[0.28em] text-(--bark) sm:text-5xl">
-                        {room.code}
-                    </p>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleCopyCode}
-                        className="rounded-2xl border-(--chip-line)"
-                    >
-                        {copied ? m.lobby_code_copied() : m.lobby_copy_code()}
-                    </Button>
-                </section>
+                <RoomCodeCopy code={room.code} />
 
                 <section className="space-y-3">
                     <h2 className="display-title m-0 text-xl font-bold text-(--bark)">{m.lobby_players()}</h2>

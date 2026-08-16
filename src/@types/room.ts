@@ -42,6 +42,11 @@ export interface IRoomState {
      * Kept on room state so lobby UI can react without stale gateway reads.
      */
     pendingLeavePeerIds: string[]
+    /**
+     * Room-scoped win totals. Seeded at 0 on join, incremented on a legitimate bingo,
+     * and kept until the room is empty.
+     */
+    wins: Record<string, number>
 }
 
 export interface IConnectAsLeader {

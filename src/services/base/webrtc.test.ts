@@ -82,6 +82,10 @@ function makeState(overrides: Partial<IRoomState> = {}): IRoomState {
         game: null,
         abandoned: false,
         pendingLeavePeerIds: [],
+        wins: {
+            "leader-1": 0,
+            "joiner-1": 0
+        },
         ...overrides
     }
 }
@@ -148,6 +152,7 @@ describe("upsertPlayer", () => {
             isLeader: false
         })
         expect(withNew.players).toHaveLength(1)
+        expect(withNew.wins["joiner-2"]).toBe(0)
 
         const replaced = service.upsertPlayer(makeState(), {
             id: "joiner-1",
@@ -155,13 +160,15 @@ describe("upsertPlayer", () => {
             isLeader: false
         })
         expect(replaced.players.find(player => player.id === "joiner-1")?.nickname).toBe("Beta 2")
+        expect(replaced.wins["joiner-1"]).toBe(0)
     })
 })
 
 describe("removePlayer", () => {
     it("removes a player by id", () => {
-        const next = service.removePlayer(makeState(), "joiner-1")
+        const next = service.removePlayer(makeState({ wins: { "leader-1": 2, "joiner-1": 1 } }), "joiner-1")
         expect(next.players.map(player => player.id)).toEqual(["leader-1"])
+        expect(next.wins).toEqual({ "leader-1": 2, "joiner-1": 1 })
     })
 })
 
@@ -249,9 +256,10 @@ describe("parseDataChannelMessage", () => {
                 players: [{ id: "1", nickname: "A", isLeader: true }],
                 phase: "lobby",
                 countdown: null,
-                game: null
+                game: null,
+                wins: { "1": 2 }
             })
-        ).toMatchObject({ type: DataChannelMessageType.Sync, code: "ABCDEF", game: null })
+        ).toMatchObject({ type: DataChannelMessageType.Sync, code: "ABCDEF", game: null, wins: { "1": 2 } })
 
         expect(service.parseDataChannelMessage({ type: DataChannelMessageType.Countdown, value: 2 })).toEqual({
             type: DataChannelMessageType.Countdown,
@@ -320,9 +328,10 @@ describe("parseDataChannelMessage", () => {
                 type: DataChannelMessageType.GameEnded,
                 winnerId: "1",
                 progress: [{ playerId: "1", nickname: "A", kind: "row", index: 0, filled: 5, total: 5 }],
-                game: { ...game, winnerId: "1", progress: [] }
+                game: { ...game, winnerId: "1", progress: [] },
+                wins: { "1": 1 }
             })
-        ).toMatchObject({ type: DataChannelMessageType.GameEnded, winnerId: "1" })
+        ).toMatchObject({ type: DataChannelMessageType.GameEnded, winnerId: "1", wins: { "1": 1 } })
     })
 
     it("returns null for invalid payloads", () => {

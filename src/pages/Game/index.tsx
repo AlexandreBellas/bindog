@@ -1,9 +1,11 @@
 import type { IRoomState } from "#/@types/room"
 import { GameEngineMessageType, RoomPhase } from "#/@types/room"
 import LeaveGameButton from "#/components/LeaveGameButton"
+import RoomCodeCopy from "#/components/RoomCodeCopy"
 import { ANNOUNCE_INTERVAL_MS } from "#/constants/announce"
 import { m } from "#/paraglide/messages"
 import { createInitialMarks, isBingoReady } from "#/services/base/utils/bingo"
+import { buildLeaderboard, isSittingOutRound } from "#/services/base/utils/leaderboard"
 import { loadRoomSession } from "#/services/public/cloudflare/room-session"
 import gameEngine from "#/services/public/game-engine"
 import { useNavigate } from "@tanstack/react-router"
@@ -14,6 +16,7 @@ import BreedAnnouncement from "./components/BreedAnnouncement"
 import FakeBingoBanner from "./components/FakeBingoBanner"
 import GameResults from "./components/GameResults"
 import PlayersLeftAlert from "./components/PlayersLeftAlert"
+import WaitingForNextRound from "./components/WaitingForNextRound"
 
 export default function Game() {
     // #region Params
@@ -112,6 +115,8 @@ export default function Game() {
         ? room.players.find(player => player.id === game.fakeBingoPlayerId)
         : null
     const winner = game?.winnerId ? room.players.find(player => player.id === game.winnerId) : null
+    const sittingOut = isSittingOutRound(room.phase, room.localPlayerId, game?.boards)
+    const leaderboard = buildLeaderboard(room.players, room.wins)
 
     const handleToggleMark = (index: number) => {
         setMarks(current => {
@@ -124,11 +129,18 @@ export default function Game() {
     return (
         <main className="page-wrap relative flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-6 sm:pt-10">
             <div className="rise-in mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-4 sm:max-w-4xl sm:gap-5">
-                <header className="shrink-0 text-center sm:text-left">
+                <header className="shrink-0 space-y-2 text-center sm:text-left">
                     <p className="island-kicker m-0">{room.name}</p>
-                    <h1 className="display-title m-0 text-3xl font-extrabold text-(--bark) sm:text-4xl">
-                        {m.game_page_title()}
-                    </h1>
+                    <div className="flex flex-nowrap items-center gap-2 sm:flex-col sm:items-start sm:gap-2">
+                        <h1 className="display-title m-0 shrink-0 whitespace-nowrap text-3xl font-extrabold text-(--bark) sm:text-4xl">
+                            {m.game_page_title()}
+                        </h1>
+                        <RoomCodeCopy
+                            code={room.code}
+                            variant="compact"
+                            className="min-w-0 flex-1 justify-end sm:flex-none sm:justify-start"
+                        />
+                    </div>
                 </header>
 
                 <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden sm:gap-5">
@@ -145,6 +157,8 @@ export default function Game() {
                     <div className="@container-size flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
                         {board ? (
                             <BingoBoard board={board} marks={marks} onToggle={handleToggleMark} />
+                        ) : sittingOut ? (
+                            <WaitingForNextRound />
                         ) : (
                             <div className="rounded-2xl border border-dashed border-(--chip-line) bg-(--surface) px-4 py-10 text-center text-sm text-(--bark-soft)">
                                 …
@@ -154,7 +168,7 @@ export default function Game() {
                 </div>
 
                 <div className="flex shrink-0 flex-col gap-3">
-                    {room.phase === RoomPhase.Playing ? (
+                    {room.phase === RoomPhase.Playing && board ? (
                         <BingoButton ready={bingoReady} onClaim={handleClaimBingo} />
                     ) : null}
                     <LeaveGameButton
@@ -169,6 +183,9 @@ export default function Game() {
                 <GameResults
                     winnerName={winner.nickname}
                     progress={game.progress}
+                    leaderboard={leaderboard}
+                    roomCode={room.code}
+                    localPlayerId={room.localPlayerId}
                     isLeader={isLeader}
                     onRestart={handleRestart}
                 />
