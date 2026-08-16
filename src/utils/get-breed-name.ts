@@ -65,7 +65,12 @@ const BREED_NAME_BY_ID: Readonly<Record<string, IBreedNameMessage>> = {
     "irish-setter": m.breed_irish_setter,
     "chow-chow": m.breed_chow_chow,
     greyhound: m.breed_greyhound,
-    "shiba-inu": m.breed_shiba_inu
+    "shiba-inu": m.breed_shiba_inu,
+    "vira-lata-caramelo": m.breed_vira_lata_caramelo,
+    "vira-lata-fiapo-de-manga": m.breed_vira_lata_fiapo_de_manga,
+    "vira-lata-bolo-formigueiro": m.breed_vira_lata_bolo_formigueiro,
+    "vira-lata-meio-poodle": m.breed_vira_lata_meio_poodle,
+    "vira-lata-raposinha": m.breed_vira_lata_raposinha
 }
 
 /**

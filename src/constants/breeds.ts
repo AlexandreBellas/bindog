@@ -64,7 +64,12 @@ export const BREEDS: readonly IBreed[] = [
     { id: "irish-setter", imageSrc: "/breeds/irish-setter.png" },
     { id: "chow-chow", imageSrc: "/breeds/chow-chow.png" },
     { id: "greyhound", imageSrc: "/breeds/greyhound.png" },
-    { id: "shiba-inu", imageSrc: "/breeds/shiba-inu.png" }
+    { id: "shiba-inu", imageSrc: "/breeds/shiba-inu.png" },
+    { id: "vira-lata-caramelo", imageSrc: "/breeds/vira-lata-caramelo.png" },
+    { id: "vira-lata-fiapo-de-manga", imageSrc: "/breeds/vira-lata-fiapo-de-manga.png" },
+    { id: "vira-lata-bolo-formigueiro", imageSrc: "/breeds/vira-lata-bolo-formigueiro.png" },
+    { id: "vira-lata-meio-poodle", imageSrc: "/breeds/vira-lata-meio-poodle.png" },
+    { id: "vira-lata-raposinha", imageSrc: "/breeds/vira-lata-raposinha.png" }
 ] as const
 
 export const BREED_IDS: readonly string[] = BREEDS.map(breed => breed.id)
