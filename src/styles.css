@@ -353,3 +353,11 @@ a {
         color: var(--foreground);
     }
 }
+
+/* Radix positions popovers in a wrapper with min-width: max-content, which
+   stretches the balloon past wrapped text. Collapse it for setting help. */
+[data-radix-popper-content-wrapper]:has([data-setting-info]) {
+    min-width: 0 !important;
+    width: fit-content;
+    max-width: min(20rem, calc(100vw - 1.5rem));
+}

@@ -3,8 +3,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip"
 import { m } from "#/paraglide/messages"
 import { CircleHelp } from "lucide-react"
-import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { fitBalloonToText } from "./utils/fit-balloon-to-text"
 
 interface ISettingInfoTooltipProps {
     children: ReactNode
@@ -15,6 +16,19 @@ export default function SettingInfoTooltip({ children }: Readonly<ISettingInfoTo
     const [canHover, setCanHover] = useState(
         () => typeof window !== "undefined" && window.matchMedia("(hover: hover) and (pointer: fine)").matches
     )
+    // #endregion
+
+    // #region Refs
+    const balloonRef = useRef<HTMLSpanElement>(null)
+    // #endregion
+
+    // #region Callbacks
+    const assignBalloonElement = useCallback((balloon: HTMLSpanElement | null) => {
+        balloonRef.current = balloon
+        if (balloon) {
+            fitBalloonToText(balloon)
+        }
+    }, [])
     // #endregion
 
     // #region Effects
@@ -33,6 +47,18 @@ export default function SettingInfoTooltip({ children }: Readonly<ISettingInfoTo
             media.removeEventListener("change", onChange)
         }
     }, [])
+
+    /**
+     * Re-measure when the help copy changes while the popover stays open.
+     */
+    useLayoutEffect(() => {
+        const balloon = balloonRef.current
+        if (!balloon) {
+            return
+        }
+
+        fitBalloonToText(balloon)
+    }, [children])
     // #endregion
 
     if (canHover) {
@@ -69,9 +95,15 @@ export default function SettingInfoTooltip({ children }: Readonly<ISettingInfoTo
             </PopoverTrigger>
             <PopoverContent
                 align="start"
-                className="w-fit max-w-xs border-none bg-foreground px-3 py-1.5 text-xs text-balance text-background"
+                data-setting-info=""
+                className="w-max min-w-0 max-w-xs border-none bg-transparent p-0 shadow-none"
             >
-                {children}
+                <span
+                    ref={assignBalloonElement}
+                    className="inline-block w-max max-w-xs rounded-md bg-foreground px-3 py-1.5 text-left text-xs text-background"
+                >
+                    {children}
+                </span>
             </PopoverContent>
         </Popover>
     )

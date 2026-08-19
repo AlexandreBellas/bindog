@@ -92,6 +92,29 @@ describe("RoomGameSettings info explanations", () => {
         await waitFor(() => {
             expect(screen.getByRole("tooltip").textContent).toContain(m.setting_full_grid_tooltip())
         })
+
+        const tooltipBalloon = document.querySelector("[data-slot='tooltip-content']")
+        expect(tooltipBalloon?.className).toContain("w-max")
+        expect(tooltipBalloon?.className).not.toContain("text-balance")
+    })
+
+    it("sizes the tap explanation to the text instead of a fixed width", async () => {
+        mockPointerMedia(false)
+        renderSettings()
+
+        fireEvent.click(screen.getAllByRole("button", { name: m.setting_info_aria() })[0])
+
+        const balloon = await screen.findByText(m.setting_full_grid_tooltip())
+        expect(balloon.className).toContain("inline-block")
+        expect(balloon.className).toContain("w-max")
+        expect(balloon.className).not.toContain("w-72")
+        expect(balloon.className).not.toContain("text-balance")
+
+        const shell = balloon.closest("[data-slot='popover-content']")
+        expect(shell?.className).toContain("w-max")
+        expect(shell?.className).toContain("min-w-0")
+        expect(shell?.className).not.toContain("w-72")
+        expect(shell?.className).not.toContain("p-4")
     })
 
     it("does not toggle a setting when its info control is activated on a touch device", () => {
