@@ -194,6 +194,8 @@ export interface ISignalingPeerLeftMessage {
     peerId: string
     /** Present when the departing peer was the leader and another peer was promoted. */
     newLeaderId: string | null
+    /** True when the peer left through the UI; false for tab close / app switch / drop. */
+    intentional: boolean
 }
 
 export interface ISignalingIncomingSignalMessage {

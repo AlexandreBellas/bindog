@@ -89,7 +89,7 @@ export class RoomDurableObject {
         }
 
         if (message.type === "leave") {
-            this.removePeer(socket)
+            this.removePeer(socket, true)
             try {
                 socket.close(1000, "left")
             } catch {
@@ -320,8 +320,9 @@ export class RoomDurableObject {
 
     /**
      * Removes a peer, transfers leadership when needed, and notifies survivors.
+     * `intentional` is true only for an explicit UI leave message.
      */
-    private removePeer(socket: WebSocket): void {
+    private removePeer(socket: WebSocket, intentional = false): void {
         const attachment = getAttachment(socket)
         if (!attachment) return
 
@@ -345,7 +346,8 @@ export class RoomDurableObject {
             send(remaining, {
                 type: "peer-left",
                 peerId: attachment.peerId,
-                newLeaderId
+                newLeaderId,
+                intentional
             })
         }
     }

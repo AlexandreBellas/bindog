@@ -691,7 +691,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 break
             }
             case SignalingServerMessageType.PeerLeft: {
-                this.handlePeerLeft(message.peerId, message.newLeaderId)
+                this.handlePeerLeft(message.peerId, message.newLeaderId, message.intentional)
                 break
             }
             case SignalingServerMessageType.Signal: {
@@ -703,7 +703,7 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
         }
     }
 
-    private handlePeerLeft(peerId: string, newLeaderId: string | null): void {
+    private handlePeerLeft(peerId: string, newLeaderId: string | null, intentional = false): void {
         this.withSuppressedPeerLeaveGrace(() => {
             this.teardownPeer(peerId)
         })
@@ -734,6 +734,12 @@ export default class GameEngineCloudflare extends BaseWebRtcService implements I
                 })
             }
             this.resumeAnnounceLoop()
+        }
+
+        if (intentional) {
+            this.cancelPendingPeerLeave(peerId)
+            this.finalizePeerLeft(peerId)
+            return
         }
 
         this.schedulePeerLeaveGrace(peerId)

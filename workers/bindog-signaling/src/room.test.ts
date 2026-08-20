@@ -292,4 +292,79 @@ describe("RoomDurableObject peer visibility", () => {
 
         expect(joined.peers).toEqual([{ id: "solo-1", nickname: "Solo", isLeader: true }])
     })
+
+    async function joinLeaderAndJoiner(): Promise<{ leaderSocket: MockSocket; joinerSocket: MockSocket }> {
+        const leaderSocket = acceptSocket()
+        const joinerSocket = acceptSocket()
+
+        await room.webSocketMessage(
+            leaderSocket as unknown as WebSocket,
+            JSON.stringify({
+                type: "join",
+                role: "leader",
+                peerId: "leader-1",
+                nickname: "Alpha"
+            })
+        )
+        await room.webSocketMessage(
+            joinerSocket as unknown as WebSocket,
+            JSON.stringify({
+                type: "join",
+                role: "joiner",
+                peerId: "joiner-1",
+                nickname: "Beta"
+            })
+        )
+
+        leaderSocket.sent.length = 0
+        joinerSocket.sent.length = 0
+        return { leaderSocket, joinerSocket }
+    }
+
+    it("marks peer-left as intentional when the player sends leave", async () => {
+        const { leaderSocket, joinerSocket } = await joinLeaderAndJoiner()
+
+        await room.webSocketMessage(joinerSocket as unknown as WebSocket, JSON.stringify({ type: "leave" }))
+
+        expect(leaderSocket.sent).toEqual([
+            {
+                type: "peer-left",
+                peerId: "joiner-1",
+                newLeaderId: null,
+                intentional: true
+            }
+        ])
+        expect(joinerSocket.closed?.code).toBe(1000)
+    })
+
+    it("marks peer-left as unintentional when the socket closes without leave", async () => {
+        const { leaderSocket, joinerSocket } = await joinLeaderAndJoiner()
+
+        await room.webSocketClose(joinerSocket as unknown as WebSocket)
+
+        expect(leaderSocket.sent).toEqual([
+            {
+                type: "peer-left",
+                peerId: "joiner-1",
+                newLeaderId: null,
+                intentional: false
+            }
+        ])
+    })
+
+    it("does not broadcast a second peer-left when the socket closes after leave", async () => {
+        const { leaderSocket, joinerSocket } = await joinLeaderAndJoiner()
+
+        await room.webSocketMessage(joinerSocket as unknown as WebSocket, JSON.stringify({ type: "leave" }))
+        await room.webSocketClose(joinerSocket as unknown as WebSocket)
+
+        expect(leaderSocket.sent).toEqual([
+            {
+                type: "peer-left",
+                peerId: "joiner-1",
+                newLeaderId: null,
+                intentional: true
+            }
+        ])
+    })
 })

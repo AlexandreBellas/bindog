@@ -851,14 +851,20 @@ describe("GameEngineCloudflare", () => {
     })
 
     describe("leave grace and phantom peers", () => {
-        function emitPeerLeft(engine: GameEngineCloudflare, peerId = "joiner-1", newLeaderId: string | null = null) {
+        function emitPeerLeft(
+            engine: GameEngineCloudflare,
+            peerId = "joiner-1",
+            newLeaderId: string | null = null,
+            intentional = false
+        ) {
             const socket = (engine as unknown as EngineInternals).signalingSocket!
             socket.emit(
                 "message",
                 JSON.stringify({
                     type: "peer-left",
                     peerId,
-                    newLeaderId
+                    newLeaderId,
+                    intentional
                 })
             )
         }
@@ -1156,6 +1162,98 @@ describe("GameEngineCloudflare", () => {
             expect(startEligibility.at(-1)).toBe(true)
 
             unsubscribe()
+            await engine.dispose()
+        })
+
+        it("removes a peer immediately when they leave through the UI", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+
+            emitPeerLeft(engine, "joiner-1", null, true)
+
+            expect(engine.getState()?.players.map(player => player.id)).toEqual([leaderId])
+            expect(engine.getState()?.pendingLeavePeerIds).toEqual([])
+            expect(engine.canStartGame()).toBe(false)
+
+            await vi.advanceTimersByTimeAsync(0)
+
+            expect(engine.getState()?.players.map(player => player.id)).toEqual([leaderId])
+
+            await engine.dispose()
+        })
+
+        it("abandons a playing round immediately when the last opponent leaves through the UI", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+            await startPlaying(engine)
+
+            emitPeerLeft(engine, "joiner-1", null, true)
+
+            const state = engine.getState()
+            expect(state?.players.map(player => player.id)).toEqual([leaderId])
+            expect(state?.phase).toBe(RoomPhase.Ended)
+            expect(state?.abandoned).toBe(true)
+            expect(state?.pendingLeavePeerIds).toEqual([])
+
+            await engine.dispose()
+        })
+
+        it("drops a peer immediately if UI leave arrives after RTC already started grace", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+            const peerConnection = (engine as unknown as EngineInternals).peers.get("joiner-1")?.connection
+            expect(peerConnection).toBeTruthy()
+
+            peerConnection!.connectionState = "closed"
+            peerConnection!.emit("connectionstatechange")
+
+            expect(engine.getState()?.pendingLeavePeerIds).toEqual(["joiner-1"])
+            expect(
+                engine
+                    .getState()
+                    ?.players.map(player => player.id)
+                    .sort()
+            ).toEqual([leaderId, "joiner-1"].sort())
+
+            emitPeerLeft(engine, "joiner-1", null, true)
+
+            expect(engine.getState()?.players.map(player => player.id)).toEqual([leaderId])
+            expect(engine.getState()?.pendingLeavePeerIds).toEqual([])
+
+            await engine.dispose()
+        })
+
+        it("applies leadership and removes the old leader immediately on intentional leave", async () => {
+            vi.useFakeTimers()
+
+            const engine = new GameEngineCloudflare()
+            const leaderId = await connectLeaderWithJoiner(engine)
+
+            const internals = engine as unknown as EngineInternals
+            internals.state = {
+                ...internals.state!,
+                players: [
+                    { id: leaderId, nickname: "Alpha", isLeader: false },
+                    { id: "old-leader", nickname: "Boss", isLeader: true }
+                ],
+                pendingLeavePeerIds: []
+            }
+            ;(engine as unknown as { isLeader: boolean }).isLeader = false
+
+            emitPeerLeft(engine, "old-leader", leaderId, true)
+
+            const state = engine.getState()
+            expect(state?.players.map(player => player.id)).toEqual([leaderId])
+            expect(state?.players[0]?.isLeader).toBe(true)
+            expect(state?.pendingLeavePeerIds).toEqual([])
+            expect(engine.canStartGame()).toBe(false)
+
             await engine.dispose()
         })
     })

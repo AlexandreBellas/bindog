@@ -399,7 +399,12 @@ describe("parseSignalingServerMessage", () => {
                 type: SignalingServerMessageType.PeerLeft,
                 peerId: "2"
             })
-        ).toEqual({ type: SignalingServerMessageType.PeerLeft, peerId: "2", newLeaderId: null })
+        ).toEqual({
+            type: SignalingServerMessageType.PeerLeft,
+            peerId: "2",
+            newLeaderId: null,
+            intentional: false
+        })
 
         expect(
             service.parseSignalingServerMessage({
@@ -407,7 +412,26 @@ describe("parseSignalingServerMessage", () => {
                 peerId: "2",
                 newLeaderId: "3"
             })
-        ).toEqual({ type: SignalingServerMessageType.PeerLeft, peerId: "2", newLeaderId: "3" })
+        ).toEqual({
+            type: SignalingServerMessageType.PeerLeft,
+            peerId: "2",
+            newLeaderId: "3",
+            intentional: false
+        })
+
+        expect(
+            service.parseSignalingServerMessage({
+                type: SignalingServerMessageType.PeerLeft,
+                peerId: "2",
+                newLeaderId: null,
+                intentional: true
+            })
+        ).toEqual({
+            type: SignalingServerMessageType.PeerLeft,
+            peerId: "2",
+            newLeaderId: null,
+            intentional: true
+        })
     })
 
     it("returns null for malformed signaling payloads", () => {

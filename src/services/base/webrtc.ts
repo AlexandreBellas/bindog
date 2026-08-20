@@ -343,7 +343,8 @@ export default abstract class BaseWebRtcService {
             return {
                 type: SignalingServerMessageType.PeerLeft,
                 peerId: record.peerId,
-                newLeaderId
+                newLeaderId,
+                intentional: record.intentional === true
             }
         }
 
